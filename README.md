@@ -1,5 +1,10 @@
 # 读了么（BookLeme）
 
+[![CI](https://github.com/bookleme/bookleme/actions/workflows/ci.yml/badge.svg)](https://github.com/bookleme/bookleme/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Zero deps](https://img.shields.io/badge/runtime-zero%20third--party%20deps-brightgreen.svg)](./pyproject.toml)
+
 把一本书编译成可安装的 Agent Skill。通用，不限金融领域；**自研**，不复用上游仓库代码。
 
 ## 它和 virgiliojr94/book-to-skill 有什么不同
