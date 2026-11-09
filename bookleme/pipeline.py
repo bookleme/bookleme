@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
+from . import llm
 from .config import (
     CACHE_DIR, DEFAULT_RUN_CONFIG, ITERATION_LOG_PATH, LOG_DIR, OFFICIAL_QUICK_VALIDATE,
     OUT_DIR, PROGRESS_PATH, ROOT, ROUTER_CONFIG, SCHEMA_DIR, STATE_PATH, dump_json, load_json,
@@ -119,6 +120,7 @@ class Pipeline:
             extra_plugin_dir: str | None = None, dry_run: bool = False) -> dict:
 
         run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+        llm.reset_counters()  # per-run LLM 调用计数
         log_path = LOG_DIR / self.milestone / f"run-{run_id}.log"
         log = Logger(log_path)
         out_dir = OUT_DIR / run_id
@@ -312,13 +314,15 @@ class Pipeline:
         log("S4 Capabilities（本批为确定性抽取器，未接 LLM）")
         s4_paths = [cache / "capabilities.json"]
         capability_sources = sorted((Path(__file__).parent / "capabilities").glob("*.py"))
+        llm_sources = sorted((Path(__file__).parent / "llm").rglob("*"))
         s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], DEFAULT_RUN_CONFIG]
-                                   + capability_sources)
+                                   + capability_sources + llm_sources)
         if self.state.should_skip(run_id, "S4", s4_hash, s4_paths):
             log("S4 SKIP")
             caps = load_json(s4_paths[0])
         else:
-            caps = extract_capabilities(full_text, segments["segments"], self.config)
+            caps = extract_capabilities(full_text, segments["segments"], self.config,
+                                        book_title=book_title)
             caps["book_sha256"] = book_sha256
             # genre_tags / engine_targets 是 per-run 的路由结果，不能写进共享
             # capabilities.json；保持为空数组，渲染阶段按本次 engines 过滤。
@@ -488,10 +492,15 @@ class Pipeline:
             metrics = {
                 "schema_version": "1.0", "run_id": run_id,
                 "extractor": caps_v["extractor"],
+                "llm_calls": llm.llm_calls,
+                "model_fingerprint": (llm.model_fingerprint("capability_extract_v1")
+                                      if caps_v["extractor"] == "llm" else None),
                 "fidelity": fidelity["metrics"],
                 "smoke": [], "router": router_result,
                 "unverified_assumptions": fidelity["unverified_assumptions"],
-                "note": "本批 S4/S3 judge 均为确定性实现；heuristic 指标值为 null，不伪造。",
+                "note": ("S4 已接入 LLM 抽取器（引文仍逐字回验）；S3 judge 仍为确定性实现。"
+                         if caps_v["extractor"] == "llm"
+                         else "S4 为确定性抽取器；heuristic 指标值为 null，不伪造。"),
             }
             refusal_values = []
             for art in artifacts:
@@ -527,7 +536,7 @@ class Pipeline:
             "validation_all_passed": validation["all_passed"],
             "metrics_path": str(out_dir / "metrics.json"),
             "validation_path": s7_paths[0].__str__(),
-            "llm_calls": 0,
+            "llm_calls": llm.llm_calls,
         }
         log(f"[BATCH] 完成：{len(artifacts)} 个产物，all_passed={validation['all_passed']}；"
             f"日志 {log_path}")

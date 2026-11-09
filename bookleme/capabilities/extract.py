@@ -1,17 +1,21 @@
 """Atomic capability extraction.
 
-This batch ships two deterministic extractors:
+This batch ships three deterministic/LLM extractors:
   * deterministic-markup: reads explicit [CAP] blocks (used by synthetic eval books,
     giving exact golden spans);
-  * heuristic: falls back to heading-level cards when no markup exists.
+  * llm: LLM-assisted cards — R_quote stays a verbatim anchor located back into the
+    source (never trusted from the model output), I/A/B fields are deepened by the
+    model; missing fields fall back to deterministic templates;
+  * heuristic: falls back to heading-level cards when neither applies.
 
-The LLM extractor is an interface placeholder for a later batch. Nothing here
-claims to have reproduced an author's reasoning with model judgement.
+Every quote — regardless of extractor — must be a verbatim substring of the source,
+so S5's `full_text.find(quote)` always resolves to a real char offset.
 """
 
 from __future__ import annotations
 
 import re
+from string import Template
 
 _CAP_START = re.compile(r"^\s*\[CAP\]\s*(.+?)\s*$")
 _FIELD = re.compile(r"^\s*(R|I|A1|A2|A3|B)\s*[:：]\s*(.*)$")
@@ -85,6 +89,85 @@ def _first_sentence_quote(content: str, quote_chars: int) -> str:
     return quote.rstrip().rstrip("，、；：").rstrip()
 
 
+_LLM_BODY_CHARS = 3000  # 每卡送模型的正文上限（控成本；首句锚点在其内）
+
+
+def _locate_quote_verbatim(full_text: str, quote: str) -> tuple[str, int]:
+    """把模型给的引文定位回原文；返回 (逐字引文, 位置)。
+
+    模型输出的引文可能带空白差异（换行↔空格）。先精确 find；不中则按
+    「空白不敏感」正文定位，命中后**切原文子串**返回——引文永远逐字，
+    绝不把模型的空白版本写进产物。
+    """
+    quote = (quote or "").strip()
+    if not quote:
+        return "", -1
+    pos = full_text.find(quote)
+    if pos >= 0:
+        return quote, pos
+    parts = [re.escape(p) for p in quote.split() if p]
+    if not parts:
+        return "", -1
+    pattern = re.compile(r"\s*".join(parts))
+    m = pattern.search(full_text)
+    if not m:
+        return "", -1
+    return full_text[m.start():m.end()], m.start()
+
+
+def _llm(text: str, segments: list[dict], config: dict, book_title: str,
+         max_caps: int = 16) -> list[dict]:
+    """LLM 抽取：I/A/B 由模型深化，R_quote 终身逐字校验（失败即丢弃该卡）。
+
+    单卡失败不中断：跳过该段继续；全军覆没时调用方回退 heuristic。
+    """
+    from .. import llm as llm_mod
+
+    prompt_full = llm_mod.load_prompt("capability_extract_v1")
+    system, user_tpl = llm_mod.split_prompt(prompt_full)
+    tpl = Template(user_tpl)
+    blocks: list[dict] = []
+    for seg in segments:
+        if len(blocks) >= max_caps:
+            break
+        start, end = seg["char_range"]
+        body = text[start:end]
+        heading = seg["heading"].strip()
+        content = body[_heading_content_start(body, heading):].strip()
+        if not content:
+            continue
+        user = tpl.safe_substitute(title=book_title, heading=heading,
+                                   body=content[:_LLM_BODY_CHARS])
+        try:
+            obj = llm_mod.chat_json(user, system=system)
+        except llm_mod.LLMError:
+            continue
+        quote, pos = _locate_quote_verbatim(text, str(obj.get("R_quote", "")))
+        if pos < 0:
+            # 模型引文不可回溯 → 不信任，用确定性首句锚点兜底
+            quote = _first_sentence_quote(content, min(16, config["max_quote_chars"]))
+        if not quote:
+            continue
+        steps = obj.get("A3_steps")
+        steps = [str(s).strip() for s in steps if str(s).strip()] if isinstance(steps, list) else []
+        if not steps:
+            steps = ["确认适用条件", "按框架逐项检查", "给出带出处的结论或说明边界"]
+        blocks.append({
+            "title": str(obj.get("title") or heading).strip()[:24],
+            "R_quote": quote,
+            "I_rephrase": str(obj.get("I_rephrase") or "").strip()
+            or f"按「{heading}」所界定的条件判断当前情境，再决定是否套用该方法。",
+            "A1_author_case": str(obj.get("A1_author_case") or "").strip()
+            or "该章节给出的原始说明（见出处）。",
+            "A2_user_trigger": str(obj.get("A2_user_trigger") or "").strip()
+            or f"当用户的问题涉及「{heading}」时触发。",
+            "A3_steps": steps,
+            "B_not_applicable": str(obj.get("B_not_applicable") or "").strip()
+            or "不适用：书中未覆盖的问题，应明确回答「书里没讲」。",
+        })
+    return blocks
+
+
 def _heuristic(text: str, segments: list[dict], max_caps: int = 16, quote_chars: int = 16) -> list[dict]:
     """Low-confidence fallback: one card per heading, quote taken verbatim from source.
 
@@ -123,14 +206,24 @@ def _segment_for(pos: int, segments: list[dict]) -> str:
     return segments[0]["segment_id"] if segments else "seg-000"
 
 
-def extract_capabilities(full_text: str, segments: list[dict], config: dict) -> dict:
+def extract_capabilities(full_text: str, segments: list[dict], config: dict,
+                         book_title: str = "") -> dict:
     blocks = _parse_markup(full_text)
     extractor = "deterministic-markup"
     if not blocks:
-        blocks = _heuristic(full_text, segments,
-                            quote_chars=min(16, config["max_quote_chars"]))
-        extractor = "heuristic"
+        from .. import llm as llm_mod
+        if llm_mod.available():
+            blocks = _llm(full_text, segments, config, book_title)
+            if blocks:
+                extractor = "llm"
+        if not blocks:
+            blocks = _heuristic(full_text, segments,
+                                quote_chars=min(16, config["max_quote_chars"]))
+            extractor = "heuristic"
 
+    tier, score = {"deterministic-markup": ("S", 0.9),
+                   "llm": ("B", 0.7),
+                   "heuristic": ("C", 0.4)}[extractor]
     caps = []
     for i, block in enumerate(blocks, 1):
         quote = block["R_quote"]
@@ -158,8 +251,7 @@ def extract_capabilities(full_text: str, segments: list[dict], config: dict) -> 
             "claims": [f"CLM-{i:04d}"],
             "checks": {"v1": [], "v2_predictive_q": "", "v2_pass": None,
                        "v3_uniqueness": None, "v3_pass": None},
-            "confidence": {"tier": "S" if extractor == "deterministic-markup" else "C",
-                           "score": 0.9 if extractor == "deterministic-markup" else 0.4},
+            "confidence": {"tier": tier, "score": score},
             "status": "draft",
         })
 

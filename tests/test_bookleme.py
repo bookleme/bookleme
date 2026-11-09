@@ -157,6 +157,104 @@ class TestRealBookFixes(unittest.TestCase):
         self.assertEqual(quote, "真正正文的第一句话在这里。")
 
 
+class TestLLMExtractor(unittest.TestCase):
+    """LLM 抽取器：引文终身逐字、单卡失败不中断、不可用时回退 heuristic。"""
+
+    def _fake_llm(self, answers):
+        import bookleme.llm as llm_mod
+        calls = {"n": 0}
+
+        def fake_chat_json(user, system="", **kw):
+            i = calls["n"]
+            calls["n"] += 1
+            a = answers[i] if i < len(answers) else answers[-1]
+            if isinstance(a, Exception):
+                raise a
+            return a
+
+        return llm_mod, fake_chat_json, calls
+
+    def test_llm_quote_is_located_verbatim_back_to_source(self):
+        from bookleme.capabilities.extract import extract_capabilities, _locate_quote_verbatim
+        from bookleme.segment.headings import segment_text
+        text = ("第1章 分析测评你目前的生活\n"
+                "在斯坦福大学的设计工作室有这样一个标牌，上面写着一句话。\n" + "后续正文。" * 100 + "\n"
+                "第2章 创建人生的指南针\n本章正文从这里开始，讲的是指南针。" + "继续。" * 100)
+        segs = segment_text(text, [], load_run_config())["segments"]
+        self.assertEqual(len(segs), 2)
+        llm_mod, fake, calls = self._fake_llm([{
+            "title": "你在这里仪表盘",
+            "R_quote": "在斯坦福大学的设计工作室有这样一个标牌",  # 模型给的引文（逐字）
+            "I_rephrase": "先量化现状再谈设计，四个维度各打分。",
+            "A1_author_case": "书中以设计室标牌引出定位问题。",
+            "A2_user_trigger": "当用户说『我很迷茫』『不知道现状』时",
+            "A3_steps": ["给四个维度打分", "找出红灯项", "确认真问题"],
+            "B_not_applicable": "不适用：需要专业诊断时。",
+        }])
+        orig = llm_mod.chat_json
+        orig_avail = llm_mod.available
+        llm_mod.chat_json, llm_mod.available = fake, lambda: True
+        try:
+            caps = extract_capabilities(text, segs, load_run_config(), book_title="测试书")
+        finally:
+            llm_mod.chat_json, llm_mod.available = orig, orig_avail
+        self.assertEqual(caps["extractor"], "llm")
+        self.assertEqual(calls["n"], len(segs))
+        cap = caps["capabilities"][0]
+        self.assertIn(cap["ria"]["R_quote"], text, "LLM 引文必须逐字可回溯")
+        self.assertEqual(cap["confidence"]["tier"], "B")
+        self.assertEqual(cap["span"]["char_start"],
+                         text.find(cap["ria"]["R_quote"]))
+
+    def test_llm_whitespace_variant_quote_collapses_to_source_slice(self):
+        # 模型把原文换行写成空格时，必须切回原文子串而不是模型的空白版本。
+        from bookleme.capabilities.extract import _locate_quote_verbatim
+        text = "前文。\n在斯坦福大学的设计工作室\n有这样一个标牌。\n后文。"
+        quote, pos = _locate_quote_verbatim(text, "在斯坦福大学的设计工作室 有这样一个标牌")
+        self.assertEqual(quote, "在斯坦福大学的设计工作室\n有这样一个标牌")
+        self.assertEqual(pos, text.find("在斯坦福大学的设计工作室\n"))
+
+    def test_llm_failure_falls_back_to_heuristic(self):
+        from bookleme.capabilities.extract import extract_capabilities
+        from bookleme.segment.headings import segment_text
+        text = ("第1章 甲\n甲章第一句在这里。" + "后面内容。" * 100 + "\n"
+                "第2章 乙\n乙章第一句在这里。" + "后面内容。" * 100)
+        segs = segment_text(text, [], load_run_config())["segments"]
+        llm_mod, fake, calls = self._fake_llm([llm_mod_error()])
+        orig = llm_mod.chat_json
+        orig_avail = llm_mod.available
+        llm_mod.chat_json, llm_mod.available = fake, lambda: True
+        try:
+            caps = extract_capabilities(text, segs, load_run_config(), book_title="测试书")
+        finally:
+            llm_mod.chat_json, llm_mod.available = orig, orig_avail
+        self.assertEqual(caps["extractor"], "heuristic")
+        self.assertGreaterEqual(len(caps["capabilities"]), 1)
+        for cap in caps["capabilities"]:
+            self.assertIn(cap["ria"]["R_quote"], text)
+
+    def test_llm_unavailable_uses_heuristic_without_calls(self):
+        from bookleme.capabilities.extract import extract_capabilities
+        from bookleme.segment.headings import segment_text
+        text = "第1章 甲\n甲章第一句在这里。" + "后面内容。" * 100
+        # 单标题会走窗口兜底，这里给两个标题走 headings 路径
+        text += "\n第2章 乙\n乙章第一句在这里。" + "后面内容。" * 100
+        segs = segment_text(text, [], load_run_config())["segments"]
+        import bookleme.llm as llm_mod
+        orig_avail = llm_mod.available
+        llm_mod.available = lambda: False
+        try:
+            caps = extract_capabilities(text, segs, load_run_config(), book_title="测试书")
+        finally:
+            llm_mod.available = orig_avail
+        self.assertEqual(caps["extractor"], "heuristic")
+
+
+def llm_mod_error():
+    import bookleme.llm as llm_mod
+    return llm_mod.LLMError("模拟调用失败")
+
+
 class TestFidelity(unittest.TestCase):
     def test_quote_verification_and_ria(self):
         cfg = load_run_config()
