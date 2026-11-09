@@ -16,7 +16,7 @@ PLUGIN = GenrePlugin(
     capability_schema={"required": ["title", "R_quote", "A2_user_trigger", "A3_steps", "B_not_applicable"]},
     section_template=Template("""## 何时读本文件
 
-当用户说出「$trigger」、或对话进入某个提问阶段时，读取本文件对应的框架卡。
+$trigger，或对话进入某个提问阶段时，读取本文件对应的框架卡。
 
 ## 框架：$title
 

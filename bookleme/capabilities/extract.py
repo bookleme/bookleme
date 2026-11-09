@@ -47,18 +47,62 @@ def _parse_markup(text: str) -> list[dict]:
     return [b for b in blocks if b["R_quote"]]
 
 
-def _heuristic(text: str, segments: list[dict], max_caps: int = 8, quote_chars: int = 120) -> list[dict]:
-    """Low-confidence fallback: one card per heading, quote taken verbatim from source."""
+def _heading_content_start(body: str, heading: str) -> int:
+    """返回标题行之后的正文起点。
+
+    合并段（目录行并入后继段）前面带有目录/前置内容，标题文本可能出现多次；
+    取最后一次出现在行首（或 `## ` 等标题标记之后）的标题，确保引文来自真实正文。
+    """
+    h = (heading or "").strip()
+    if not h:
+        return 0
+    best = 0
+    for m in re.finditer(re.escape(h), body):
+        line_start = body.rfind("\n", 0, m.start()) + 1
+        if re.fullmatch(r"#{0,6}\s*", body[line_start:m.start()]):
+            best = m.end()
+    return best
+
+
+def _first_sentence_quote(content: str, quote_chars: int) -> str:
+    """取正文首句作为逐字引文；超预算时在从句边界截断。
+
+    只做切片与两端去空白——结果恒为原文子串，`full_text.find(quote)` 必命中。
+    绝不折叠内部空白（那会破坏逐字性，正是真实书稿踩过的坑）。
+    边界搜索窗口放宽到 quote_chars+8：优先在从句边界（≥8 字处）收口，
+    避免「有这样一」式硬切半句；结果仍 ≤ 窗口上限。
+    """
+    content = content.strip()
+    if not content:
+        return ""
+    m = re.search(r"[。！？]", content)
+    sentence = content[:m.end()] if m else content
+    if len(sentence) <= quote_chars:
+        return sentence.rstrip()
+    window = sentence[:quote_chars + 8]
+    cuts = [mm.end() for mm in re.finditer(r"[，、；：]", window) if mm.end() >= 8]
+    quote = sentence[:cuts[-1]] if cuts else sentence[:quote_chars]
+    return quote.rstrip().rstrip("，、；：").rstrip()
+
+
+def _heuristic(text: str, segments: list[dict], max_caps: int = 16, quote_chars: int = 16) -> list[dict]:
+    """Low-confidence fallback: one card per heading, quote taken verbatim from source.
+
+    引文预算：S7 版权门要求引文总量 ≤ 产物字符的 3%。每卡产物约 400 字符、
+    固定部分约 2900 字符，16 卡时预算约 260 字符 → 每卡引文取 16 字以内
+    （与合成样例 [CAP] 引文同量级）；完整溯源由 span.char_start 承担。
+    """
     blocks = []
-    for seg in segments[:max_caps]:
+    for seg in segments:
+        if len(blocks) >= max_caps:
+            break
         start, end = seg["char_range"]
-        body = text[start:end].strip()
-        body = re.sub(r"^#{1,6}\s*", "", body)
-        body = re.sub(r"\s+", " ", body)
-        first = re.split(r"[。！？\n]", body)[0][:quote_chars].strip()
+        body = text[start:end]
+        heading = seg["heading"].strip()
+        content = body[_heading_content_start(body, heading):]
+        first = _first_sentence_quote(content, min(quote_chars, 150))
         if not first:
             continue
-        heading = seg["heading"].strip()
         blocks.append({
             "title": heading,
             "R_quote": first,
@@ -83,7 +127,8 @@ def extract_capabilities(full_text: str, segments: list[dict], config: dict) -> 
     blocks = _parse_markup(full_text)
     extractor = "deterministic-markup"
     if not blocks:
-        blocks = _heuristic(full_text, segments, quote_chars=min(120, config["max_quote_chars"]))
+        blocks = _heuristic(full_text, segments,
+                            quote_chars=min(16, config["max_quote_chars"]))
         extractor = "heuristic"
 
     caps = []

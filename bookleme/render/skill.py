@@ -162,7 +162,8 @@ def _framework_md(plugin, cap: dict, index: int) -> str:
     ria = cap["ria"]
     steps = "\n".join(f"{i}. {s}" for i, s in enumerate(ria["A3_steps"], 1))
     body = Template(plugin.section_template).safe_substitute(
-        trigger=ria["A2_user_trigger"], title=cap["title"], quote=ria["R_quote"],
+        trigger=str(ria["A2_user_trigger"]).rstrip("。；;．. "),
+        title=cap["title"], quote=ria["R_quote"],
         rephrase=ria["I_rephrase"], author_case=ria["A1_author_case"],
         steps=steps, not_applicable=ria["B_not_applicable"],
     )

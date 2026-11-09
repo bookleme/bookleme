@@ -108,6 +108,55 @@ class TestPlugins(unittest.TestCase):
                 self.assertNotIn(">", desc)
 
 
+class TestRealBookFixes(unittest.TestCase):
+    """真实书稿（《斯坦福大学人生设计课》PDF）暴露的缺陷回归测试。"""
+
+    def test_toc_duplicate_headings_collapse_to_body(self):
+        # 目录行「第1章 …」与正文标题重名，不得制造短假段；正文出现应胜出。
+        from bookleme.segment.headings import segment_text
+        toc_row = "第1章 分析测评你目前的生活\n第2章 创建人生的指南针\n"
+        body = ("第1章 分析测评你目前的生活\n" + "这是第一章的正文内容。" * 150 + "\n"
+                "第2章 创建人生的指南针\n" + "这是第二章的正文内容。" * 150 + "\n")
+        full = "目录\n" + toc_row + "献词\n推荐序\n" + body
+        segs = segment_text(full, [], load_run_config())["segments"]
+        self.assertEqual(len(segs), 2, f"目录行未被合并：{[s['heading'] for s in segs]}")
+        for s in segs:
+            self.assertGreater(s["char_range"][1] - s["char_range"][0], 1000)
+        # 全文无失覆盖：段区间连续铺满
+        self.assertEqual(segs[0]["char_range"][0], 0)
+        self.assertEqual(segs[-1]["char_range"][1], len(full))
+        for a, b in zip(segs, segs[1:]):
+            self.assertEqual(a["char_range"][1], b["char_range"][0])
+
+    def test_heuristic_quote_is_verbatim_substring(self):
+        # 引文必须是原文逐字子串（不得折叠空白），否则 S5 find() 失败、char_start=-1。
+        from bookleme.capabilities.extract import extract_capabilities
+        from bookleme.segment.headings import segment_text
+        body = ("第1章 分析测评你目前的生活\n在斯坦福大学的设计工作室有这样一个标牌，"
+                "上面写着一句话。\n" + "后续正文。" * 80 + "\n")
+        segs = segment_text(body, [], load_run_config())["segments"]
+        caps = extract_capabilities(body, segs, load_run_config())
+        self.assertEqual(caps["extractor"], "heuristic")
+        self.assertGreaterEqual(len(caps["capabilities"]), 1)
+        for cap in caps["capabilities"]:
+            quote = cap["ria"]["R_quote"]
+            self.assertIn(quote, body, f"引文非逐字子串：{quote!r}")
+            self.assertLessEqual(len(quote), 24, "引文超版权预算（含从句边界窗口）")
+        # 引文定位必须可解析
+        pos = body.find(caps["capabilities"][0]["ria"]["R_quote"])
+        self.assertGreaterEqual(pos, 0)
+        self.assertEqual(caps["capabilities"][0]["span"]["char_start"], pos)
+
+    def test_heuristic_quote_not_from_toc_row(self):
+        # 合并段前置目录区，引文不得来自目录行，必须来自真实正文首句。
+        from bookleme.capabilities.extract import _first_sentence_quote, _heading_content_start
+        body = ("第1章 分析测评你目前的生活\n第2章 创建人生的指南针\n"
+                "第1章 分析测评你目前的生活\n真正正文的第一句话在这里。后面还有很多。")
+        start = _heading_content_start(body, "第1章 分析测评你目前的生活")
+        quote = _first_sentence_quote(body[start:], 24)
+        self.assertEqual(quote, "真正正文的第一句话在这里。")
+
+
 class TestFidelity(unittest.TestCase):
     def test_quote_verification_and_ria(self):
         cfg = load_run_config()

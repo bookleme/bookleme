@@ -22,6 +22,51 @@ def _match_heading(line: str):
     return None
 
 
+def _merge_duplicate_headings(segments: list[dict]) -> list[dict]:
+    """书籍目录行会被标题正则命中，与正文标题重名，制造大量短「假段」。
+
+    确定性规则：同名标题保留正文出现——优先正文量大的出现（≥1000 字符），
+    否则保留靠后的出现（目录在正文之前）；被删段的字符区间并入其后继保留段
+    （末尾并入最后一段），保证全文无失覆盖、不产生空洞。
+    """
+    def norm(h: str) -> str:
+        return re.sub(r"\s+", "", h or "")
+
+    groups: dict[str, list[int]] = {}
+    for i, seg in enumerate(segments):
+        groups.setdefault(norm(seg["heading"]), []).append(i)
+
+    keep: set[int] = set()
+    for idxs in groups.values():
+        if len(idxs) == 1:
+            keep.add(idxs[0])
+        else:
+            long_ones = [i for i in idxs
+                         if segments[i]["char_range"][1] - segments[i]["char_range"][0] >= 1000]
+            keep.add((long_ones or idxs)[-1])
+
+    kept_idxs = sorted(keep)
+    result = [dict(segments[i], char_range=list(segments[i]["char_range"])) for i in kept_idxs]
+    for i in range(len(segments) - 1, -1, -1):
+        if i in keep:
+            continue
+        a, b = segments[i]["char_range"]
+        nxt = next((j for j in kept_idxs if j > i), None)
+        if nxt is not None:
+            k = kept_idxs.index(nxt)
+            result[k]["char_range"][0] = min(result[k]["char_range"][0], a)
+        else:
+            result[-1]["char_range"][1] = max(result[-1]["char_range"][1], b)
+    # 首个标题之前的序言（书名页/目录页）并入第一段，保证全文无失覆盖。
+    if result:
+        result[0]["char_range"][0] = 0
+    for n, seg in enumerate(result, 1):
+        s, e = seg["char_range"]
+        seg["segment_id"] = f"seg-{n:03d}"
+        seg["token_est"] = (e - s) // 2
+    return result
+
+
 def segment_text(full_text: str, toc: list[dict], config: dict) -> dict:
     headings: list[tuple[int, int, str]] = []  # (char_offset, level, heading)
     offset = 0
@@ -48,6 +93,7 @@ def segment_text(full_text: str, toc: list[dict], config: dict) -> dict:
                 "parent_id": "",
                 "figure_text_lost": False,
             })
+        segments = _merge_duplicate_headings(segments)
         method = "headings"
         low_confidence = False
     else:

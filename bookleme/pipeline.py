@@ -262,7 +262,11 @@ class Pipeline:
         # ---------------- S2 Segment ----------------
         log("S2 Segment（中英文标题 + 窗口兜底）")
         s2_paths = [cache / "segments.json"]
-        s2_hash = stage_input_hash([s1_paths[0], s1_paths[2], DEFAULT_RUN_CONFIG])
+        # 纳入 segment 源码：改分段规则后必须自动失效缓存，否则旧 segments.json
+        # 会被误当成新代码产物（真实书稿目录污染就是这么被掩盖的）。
+        segment_sources = sorted((Path(__file__).parent / "segment").glob("*.py"))
+        s2_hash = stage_input_hash([s1_paths[0], s1_paths[2], DEFAULT_RUN_CONFIG]
+                                   + segment_sources)
         if self.state.should_skip(run_id, "S2", s2_hash, s2_paths):
             log("S2 SKIP")
             segments = load_json(s2_paths[0])
