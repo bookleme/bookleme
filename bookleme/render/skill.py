@@ -18,11 +18,16 @@ import os
 from pathlib import Path
 
 
-def state_path(slug, session_id, state_dir):
-    return Path(state_dir) / slug / session_id / "state.json"
+def default_state_dir():
+    """Runtime state root: BOOKLEME_STATE_DIR env var, else ~/.bookleme/sessions."""
+    return os.environ.get("BOOKLEME_STATE_DIR") or str(Path.home() / ".bookleme" / "sessions")
 
 
-def load(slug, session_id, state_dir):
+def state_path(slug, session_id, state_dir=None):
+    return Path(state_dir or default_state_dir()) / slug / session_id / "state.json"
+
+
+def load(slug, session_id, state_dir=None):
     p = state_path(slug, session_id, state_dir)
     if not p.exists():
         return {"slug": slug, "session_id": session_id, "current_state": "opening",
@@ -32,7 +37,7 @@ def load(slug, session_id, state_dir):
         return json.load(fh)
 
 
-def save(state, slug, session_id, state_dir):
+def save(state, slug, session_id, state_dir=None):
     p = state_path(slug, session_id, state_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name("state.json.tmp")
@@ -57,7 +62,9 @@ def _steps(plugin, ctx: dict) -> str:
     engine_note = (
         "按 Topic Index 路由到对应 references/ 分片，只加载当前问题需要的那一份。"
         if ctx["engine"] == "knowledge_pack"
-        else "按状态机推进：每轮只问一题，读完回答后先做简短反馈再进入下一题。"
+        else "按状态机推进：每轮只问一题，读完回答后先做简短反馈再进入下一题；"
+             "每轮结束把 current_state / asked_questions / answers 写入 state.json"
+             "（用 `scripts/state_io.py`，约定见 `references/state-guide.md`）。"
     )
     return "\n".join([
         "### Step 1：确认适用条件",
@@ -110,6 +117,7 @@ def _skill_md(plugin, ctx: dict) -> str:
         f"适用于 {', '.join(plugin.trigger_words)} 等场景；"
         "不适用于书中未覆盖的问题，以及需要专业资质判断的心理、医疗、法律、投资场景。"
     )
+    section_lines = "\n\n".join(f"### {s}\n\n（回引用户自述的结论）" for s in contract["sections"])
     return f"""---
 name: {ctx['slug']}
 description: {ctx['description']}
@@ -139,10 +147,14 @@ description: {ctx['description']}
 
 {output_seed}
 
-示例结构：
+示例结构（正文按「必备板块」逐节产出；「元信息附录」是溯源层，两层都要交付）：
 
 ```
 ## {contract['artifact']}
+
+{section_lines}
+
+## 元信息附录
 - 命中的框架：（名称 + 出处）
 - 带出处的规则：（When X, do Y, because Z）
 - 执行步骤：1. … 2. … 3. …
@@ -216,9 +228,13 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
             )
             + "\n"
         )
+        sm = getattr(plugin, "state_machine", None) or {}
+        states = " / ".join(sm.get("states") or [])
+        state_line = f"\ncurrent_state 取值：{states}。\n" if states else ""
         files["references/state-guide.md"] = (
             "## 何时读本文件\n\n需要实现可中断续聊或排查状态问题时读取。\n\n"
             f"{plugin.extra_sections.get('state_guide', '')}\n"
+            f"{state_line}"
         )
     else:
         lines = ["## 何时读本文件", "", "需要快速判断「什么情境用哪条规则」时读取本文件。", "",

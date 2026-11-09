@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.1 (2026-11-09) — P0 修复：可中断续聊链路 + 输出格式单一 schema
+
+首次真实委托（9 轮教练会话，产出完整人生设计蓝图）实测暴露两处断链，本次修复并回归：
+
+- **P0 续聊断链**：此前 SKILL.md 只指示"恢复时读 state.json"，全链路无人指示写入，且
+  `state-guide.md` 给出构建期相对路径 `out/sessions/...`（装机后不可解析）——真实会话 9 轮
+  未产生任何 state 文件，中断即全丢。修复：① 工作流与 Gotchas 明确"每轮问答结束写入
+  state.json"；② `state_io.py` 新增 `default_state_dir()`（env `BOOKLEME_STATE_DIR`，
+  回落 `~/.bookleme/sessions`），`load/save` 的 `state_dir` 改为可省略；③ state-guide 改为
+  运行期可解析约定并渲染状态机取值（opening…close）。
+- **P0 输出格式双 schema 矛盾**：`output_seed` 的七板块必备结构与硬编码"示例结构"的元信息
+  条目互相冲突，真实交付只能靠执行者即兴合并。修复：示例结构改为统一双层——正文逐节
+  （由 `output_contract.sections` 生成）+「元信息附录」溯源层，明确"两层都要交付"。
+- 新增回归测试 3 项（TestRuntimeStateContract：状态写读链路、state_io 往返与默认目录、
+  单 schema 与板块覆盖），共 26 项全过。
+
+**如实标注的未办项**（P1/P2，已列入后续批次）：`output_contract.required_fields` 尚未渲染
+进产物（证伪/放弃条件会被静默丢弃）；`assets/blueprint-template.md` 与 `file_name` 交付约定
+未被 SKILL.md 引用；`routing_rules.intent_map` 为死元数据且与真实能力序号不一致；冒烟用例
+缺中断续聊与长对话纪律覆盖；`render/skill.py` Step 3 "带上处"漏字待修。
+
 ## 0.1.0 (2026-11-08) — M0/M1/M2/M3 可运行骨架
 
 - 上游 `virgiliojr94/book-to-skill` 源码审计与四方收敛性比较（隔离参考目录，未导入代码）。

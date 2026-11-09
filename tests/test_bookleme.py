@@ -375,5 +375,87 @@ class TestEndToEnd(unittest.TestCase):
             self.assertTrue(all(c["passed"] for c in s["cases"].values()))
 
 
+class TestRuntimeStateContract(unittest.TestCase):
+    """P0 回归：可中断续聊链路（写+读+运行期路径）与输出格式单一 schema。"""
+
+    def _run_synthetic(self, run_id):
+        from bookleme.pipeline import Pipeline
+        cfg = load_run_config()
+        pipe = Pipeline(cfg, load_router_config())
+        summary = pipe.run([str(SYNTHETIC)], run_id=run_id, title="人生设计练习册（合成）")
+        self.assertTrue(summary["validation_all_passed"])
+        return summary
+
+    def test_behavior_skill_wires_state_write_read_chain(self):
+        summary = self._run_synthetic("unittest-state-contract")
+        bs = [Path(a) for a in summary["artifacts"] if "bs" in Path(a).name][0]
+        skill_md = (bs / "SKILL.md").read_text(encoding="utf-8")
+        state_guide = (bs / "references/state-guide.md").read_text(encoding="utf-8")
+        state_io = (bs / "scripts/state_io.py").read_text(encoding="utf-8")
+
+        # 写入义务必须出现在工作流与 Gotchas（此前只写"恢复时读"，写入无人指示）
+        self.assertIn("写入 state.json", skill_md, "工作流必须指示每轮写 state")
+        self.assertIn("每轮问答结束把 current_state / asked_questions / answers 写入 state.json", skill_md)
+        self.assertIn("恢复会话时先读取 state.json", skill_md)
+
+        # 运行期路径必须可解析：不得再出现构建仓库相对路径 out/sessions
+        self.assertNotIn("out/sessions", state_guide, "state-guide 不得给出构建期相对路径")
+        self.assertIn("BOOKLEME_STATE_DIR", state_guide)
+        self.assertIn("current_state 取值", state_guide)
+        self.assertIn("opening / ask_q", state_guide, "状态机取值应渲染进 state-guide")
+
+        # state_io.py 必须内置默认 state_dir，调用方可以不传
+        self.assertIn("def default_state_dir()", state_io)
+        self.assertIn("state_dir=None", state_io)
+
+    def test_state_io_round_trip_and_default_dir(self):
+        import os
+        import types
+        from bookleme.render.skill import _STATE_IO
+
+        mod = types.ModuleType("state_io_under_test")
+        exec(_STATE_IO, mod.__dict__)
+
+        saved = os.environ.get("BOOKLEME_STATE_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                os.environ["BOOKLEME_STATE_DIR"] = tmp
+                self.assertEqual(mod.default_state_dir(), tmp)
+                st = mod.load("slug-x", "sess-1")
+                self.assertEqual(st["current_state"], "opening")
+                self.assertEqual(st["asked_questions"], [])
+                st["current_state"] = "ask_q"
+                st["asked_questions"].append("Q1")
+                mod.save(st, "slug-x", "sess-1")
+                back = mod.load("slug-x", "sess-1")
+                self.assertEqual(back["current_state"], "ask_q")
+                self.assertEqual(back["asked_questions"], ["Q1"])
+            # env 未设置时回落到 ~/.bookleme/sessions（只验路径，不落盘）
+            os.environ.pop("BOOKLEME_STATE_DIR", None)
+            self.assertTrue(mod.default_state_dir().endswith(str(
+                Path.home() / ".bookleme" / "sessions")))
+        finally:
+            if saved is not None:
+                os.environ["BOOKLEME_STATE_DIR"] = saved
+
+    def test_output_example_is_single_schema_and_covers_sections(self):
+        from bookleme.plugins import load_plugins
+        summary = self._run_synthetic("unittest-state-contract")
+        bs = [Path(a) for a in summary["artifacts"] if "bs" in Path(a).name][0]
+        skill_md = (bs / "SKILL.md").read_text(encoding="utf-8")
+
+        registry, _ = load_plugins()
+        coach = registry["coach_dialogue"]
+        contract = coach.output_contract
+        # 正文层：契约的每个必备板块都要出现在输出格式与示例结构里
+        for s in contract["sections"]:
+            self.assertIn(f"### {s}", skill_md, f"示例结构缺少板块：{s}")
+        # 溯源层：元信息附录独立成层，与正文不再互相矛盾
+        self.assertIn("## 元信息附录", skill_md)
+        self.assertIn("两层都要交付", skill_md)
+        # 老的矛盾写法（示例只有元信息条目、无正文板块）已消除
+        self.assertNotIn("示例结构：\n\n```\n## ", skill_md)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

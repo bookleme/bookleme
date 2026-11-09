@@ -43,7 +43,7 @@ $sections
         "主动区分「重力问题」与「可设计的真问题」，只对后者投入设计资源。",
         "不评判用户的任何选择，不替用户做决定；结论必须由用户自己说出。",
         "情绪护栏：察觉用户处在低谷或情绪脆弱时，跳过反向推演，先陪他找回能回血的东西，做完立刻转回正面。",
-        "支持可中断续聊：恢复时先读取 state.json 的 current_state / asked_questions，再接着问。",
+        "支持可中断续聊：每轮问答结束把 current_state / asked_questions / answers 写入 state.json（用 scripts/state_io.py）；恢复会话时先读取 state.json 的 current_state / asked_questions，再接着问。",
     ],
     state_machine={
         "initial": "opening",
@@ -109,7 +109,7 @@ $sections
     default_engines=["behavior_skill"],
     engine_kind="behavior",
     extra_sections={
-        "state_guide": "运行期状态写入 out/sessions/<slug>/<session_id>/state.json；技能包内只放 state/schema.json 与 scripts/state_io.py，保持只读。",
+        "state_guide": "运行期状态写入 <state_dir>/<slug>/<session_id>/state.json：state_dir 取环境变量 BOOKLEME_STATE_DIR，未设置时默认 ~/.bookleme/sessions（scripts/state_io.py 的 load/save 已内置该默认值，state_dir 可省略）。每轮问答结束调用 save 追加进度，恢复会话时先 load 再接着问。技能包内 state/schema.json 与 scripts/state_io.py 保持只读。",
         "data_dependency": "本 Skill 不绑定任何专有数据库；缺少用户陈述时先追问，不用假设填充。",
     },
 )
