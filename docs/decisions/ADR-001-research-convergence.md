@@ -3,7 +3,7 @@
 - **状态**：Accepted（M0 研究对齐交付，2026-11-08）
 - **决策者**：BookLeme 主代理（批准）/ general-purpose-1（本地源码审计与收敛性分析）
 - **相关**：`radiant-pulse-turing-MzfzgW8-.md` 第 1、2、6、11、12 节；`docs/UPSTREAM_AUDIT.md`（本次本地审计笔记）；ADR-002、ADR-003
-- **约束**：本 ADR 只做**研究结论采信裁定**，不导入任何上游代码。上游只读参考目录 `/Users/bertram/Desktop/BookLeme-上游参考/` 全程未被修改。
+- **约束**：本 ADR 只做**研究结论采信裁定**，不导入任何上游代码。上游只读参考目录 `$UPSTREAM_REF/` 全程未被修改。
 
 ---
 
@@ -26,7 +26,7 @@
 
 ## 2. 四方收敛性比较表
 
-> 「本地证据」列全部指向 `/Users/bertram/Desktop/BookLeme-上游参考/` 下的文件，行号为本次 clone 实际行号。
+> 「本地证据」列全部指向 `$UPSTREAM_REF/` 下的文件，行号为本次 clone 实际行号。
 > 分类：**一致**（四方无冲突）/ **分歧**（存在冲突，已裁定）/ **新发现**（前三方未逐字覆盖、本次本地审计新增）。
 
 | # | 命题 / 结论 | ① 报告族 (A/B/C) | ② GitHub API | ③ 计划模式逐字复核 | ④ 本次本地源码审计 | 分类 | 采信与否及理由 | 本地证据（路径:行号） |
@@ -136,7 +136,7 @@ yaml MISSING / jsonschema MISSING / pytest MISSING / jinja2 MISSING
 3. **测试用标准库 `unittest`**：不依赖 `pytest`；CI 里以 `python3 -m unittest discover` 为默认测试命令。
 4. **渲染用标准库字符串模板**：`render/` 用 `string.Template` / `str.format` 风格的确定性模板，不依赖 `jinja2`；插件 `render(ctx)` 契约不变。
 5. **schema 文件仍是标准 JSON Schema**：`schemas/*.schema.json` 保持标准 JSON Schema 语法（`type/properties/required/...`），不因本机缺 `jsonschema` 而降级成私有格式。
-6. **可选依赖已装在 `.vendor/` 做双保险**：`/Users/bertram/Desktop/BookLeme/.vendor/` 已备妥 `yaml (PyYAML 6.0.3)` / `jsonschema (4.26.0)` / `pytest (9.2.0)` / `jinja2 (3.1.6)` 及依赖（`markupsafe / attrs / referencing / rpds / pluggy / iniconfig / packaging / pygments`）。用途**仅限**：① 调用本机官方 `quick_validate.py`（需 `yaml`）校验产物 frontmatter；② 用 `jsonschema` 加载并校验 7 个 schema 与样例；③ 用 `pytest` 做第二套测试跑法（双保险）。通过 `PYTHONPATH=.vendor` 或显式 `sys.path` 注入使用，**核心运行时绝不依赖 `.vendor/`**。
+6. **可选依赖已装在 `.vendor/` 做双保险**：`$ROOT/.vendor/` 已备妥 `yaml (PyYAML 6.0.3)` / `jsonschema (4.26.0)` / `pytest (9.2.0)` / `jinja2 (3.1.6)` 及依赖（`markupsafe / attrs / referencing / rpds / pluggy / iniconfig / packaging / pygments`）。用途**仅限**：① 调用本机官方 `quick_validate.py`（需 `yaml`）校验产物 frontmatter；② 用 `jsonschema` 加载并校验 7 个 schema 与样例；③ 用 `pytest` 做第二套测试跑法（双保险）。通过 `PYTHONPATH=.vendor` 或显式 `sys.path` 注入使用，**核心运行时绝不依赖 `.vendor/`**。
 7. **分工不变**：本机官方 `quick_validate.py` 只管 frontmatter 白名单/name/description（计划第 7 节），五段式/Gotchas/触发词/≤500 行由自有 `validate/lint.py` 承担；`copyright_gate.py` 全确定性。
 
 **影响面提醒**：M1 的 `configs/*.yaml` → `*.json`、M2 的 `tests/` 用 `unittest`、M3 的 `render/` 用标准库模板，均需按本约束落地；负责设计文档的代理已在本次协作中同步。

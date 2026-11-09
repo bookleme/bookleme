@@ -10,7 +10,7 @@
 
 ## 上游研究与案例致谢（仅作研究对齐，未导入任何代码）
 
-- `virgiliojr94/book-to-skill`（MIT）：clone 到 `/Users/bertram/Desktop/BookLeme-上游参考/` 仅用于源码审计；本仓库未复制、未导入其任何代码或模板。借鉴的三条原理及逐条差异见 `docs/decisions/ADR-001-research-convergence.md`、`docs/UPSTREAM_AUDIT.md` 与 `README.md` 差异表。
+- `virgiliojr94/book-to-skill`（MIT）：clone 到 `$UPSTREAM_REF/` 仅用于源码审计；本仓库未复制、未导入其任何代码或模板。借鉴的三条原理及逐条差异见 `docs/decisions/ADR-001-research-convergence.md`、`docs/UPSTREAM_AUDIT.md` 与 `README.md` 差异表。
 - 微信公众号「数字生命卡兹克」《人生设计课》教练式 Prompt 案例、公众号「Alpha Engineer」《穿透财报》Skill 案例：仅作为「教练型 / 分析型」两类体裁的形态参考，未复制任何原文 Prompt、书籍内容或专有数据。
 
 ## 依赖

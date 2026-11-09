@@ -1,10 +1,10 @@
 """Dependency-free equivalent of the official quick_validate.py.
 
-Verified line-by-line against
-/Users/bertram/Desktop/skills/.system/skill-creator/scripts/quick_validate.py
-(frontmatter whitelist at line 40, name regex at 61, description rules 78-91,
-TODO scan 93-115). When PyYAML is available the official script is ALSO run
-by pipeline.py as a second opinion.
+Verified line-by-line against the official validator shipped in the skill
+source of truth at `<SKILLS_ROOT>/.system/skill-creator/scripts/quick_validate.py`
+(resolve `SKILLS_ROOT` from `bookleme.config`, or set `BOOKLEME_SKILLS_ROOT`).
+Key rules there: frontmatter whitelist, name regex, description limits, TODO scan.
+When PyYAML is available the official script is ALSO run by pipeline.py as a second opinion.
 """
 
 from __future__ import annotations

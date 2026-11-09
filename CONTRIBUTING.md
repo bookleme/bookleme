@@ -10,7 +10,7 @@
 ## 提交前检查
 
 ```bash
-cd /Users/bertram/Desktop/BookLeme
+cd $ROOT
 python3 -m unittest discover -s tests -v
 python3 -m bookleme schema --state
 python3 -m bookleme plugin validate bookleme/plugins/builtin/coach_dialogue.py

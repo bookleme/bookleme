@@ -1,7 +1,7 @@
 # BookLeme 架构说明（M1 设计冻结）
 
 > 状态：M1 设计冻结。本文定义 BookLeme 的 stage DAG、幂等模型、共享 IR、可观测性纪律与 v1 范围锚定。
-> 前缀约定：`$ROOT = /Users/bertram/Desktop/BookLeme`。本文所有相对路径均以 `$ROOT` 为基准；真源安装路径为唯一例外，单独以绝对路径列出。
+> 前缀约定：`$ROOT = $ROOT`。本文所有相对路径均以 `$ROOT` 为基准；真源安装路径为唯一例外，单独以绝对路径列出。
 
 ---
 
@@ -43,7 +43,7 @@
 - 日志：`$ROOT/logs/<M>/run-<run_id>.log`（`<M>` ∈ `M0..M5`）。
 - 公开源落盘：`$ROOT/sources/public/<sha256(url)>.json`（`bookleme fetch` 为 M4 规划，本批由调用方落盘；S1 起核心只读本地文件）。
 - 运行期会话状态：`$ROOT/out/sessions/<slug>/<session_id>/state.json`（写前读 + session 级文件锁 + `resume` 续聊），技能包保持只读干净。
-- 安装真源（唯一写到工作区之外的例外）：knowledge_pack → `/Users/bertram/Desktop/skills/06-知识与学习/<中文显示名（english-kebab）>/`；behavior_skill → `/Users/bertram/Desktop/skills/01-AI增强/<中文显示名（english-kebab）>/`。`~/.workbuddy/skills`、`~/.codex/skills` 为整目录软链接，写真源后自动可见、绝不改动；`~/.claude/skills` 为真实目录，逐条补绝对路径软链接，写前检查、不覆盖。
+- 安装真源（唯一写到工作区之外的例外）：knowledge_pack → `<SKILLS_ROOT>/06-知识与学习/<中文显示名（english-kebab）>/`；behavior_skill → `<SKILLS_ROOT>/01-AI增强/<中文显示名（english-kebab）>/`。`~/.workbuddy/skills`、`~/.codex/skills` 为整目录软链接，写真源后自动可见、绝不改动；`~/.claude/skills` 为真实目录，逐条补绝对路径软链接，写前检查、不覆盖。
 
 ---
 
@@ -76,7 +76,7 @@ S0→S1→S2 串行；**S3 ‖ S4 并行**（都以 S2 为输入）；S5 等二�
 | **S4 Capabilities** | `$ROOT/out/<run_id>/segments.json`、`$ROOT/out/<run_id>/slices/`；插件 `capability_schema`（`$ROOT/bookleme/plugins/builtin/<genre_id>.py` 或 `--plugin-dir`）；`$ROOT/bookleme/llm/prompts/*.md`（版本化，供后续 LLM 接入） | `$ROOT/out/<run_id>/capabilities.json`（`[{capability_id, title, genre_tags[], engine_targets[], source_id, span, ria, claims[], checks, confidence, status}]`）；`$ROOT/schemas/capabilities.schema.json` 校验通过记录 | **本批 = 确定性抽取器**（合成书 `[CAP]` + `R:/I:/A1:/A2:/A3:/B:` 六字段标记切分，见 §0）；LLM 抽取器设计上预留为可插拔接口，**本批代码未实现该接口文件**，留待后续批次接入；未验证「框架优于摘要」 | 单段重试 2 次 → `uncovered`，计入 `coverage_score` 扣分，**不阻塞** |
 | **S5 Fidelity** | `$ROOT/out/<run_id>/capabilities.json`、`normalized/full_text.txt`、`char_map.json`、`segments.json` | `$ROOT/out/<run_id>/claim_ledger.json`；`$ROOT/out/<run_id>/verification.json`；`$ROOT/out/<run_id>/fidelity_report.json`（7 指标，每条带 `metric_type`）；`$ROOT/out/<run_id>/regen_queue.json` | 确定性 Python 检查（逐字引文**受限归一，不整篇 NFKC** / 去不可见字符 / char_map 反查 / 精确子串、shingle、6 条不抄原文硬检查）为主；V1/V2/V3 的 judge 部分设计上预留为可插拔接口、**本批代码未实现该接口文件**，留待后续批次接入（本批确定性兜底，judge 结论标 `heuristic` 且值为 `null`） | `invalidated` 入 `regen_queue.json`，Generator→Evaluator→Re-generator ≤3 轮；仍不过 → capability `status=rejected` |
 | **S6 Render** | `$ROOT/out/<run_id>/capabilities.json`（按 `engine_targets` 过滤）、`claim_ledger.json`；插件 `section_template` / `skill_template`（标准库字符串模板）/ `output_contract` / `render(ctx)`；`$ROOT/configs/router.json`（slug 规则） | `$ROOT/out/<run_id>/build/knowledge/<slug>/`（`SKILL.md` + `references/{topic-index.md, chNN-*.md, glossary.md, patterns.md, cheatsheet.md, provenance.md}`）；`$ROOT/out/<run_id>/build/behavior/<slug>/`（`SKILL.md` + `references/framework-*.md` + `assets/blueprint-template.md` + `scripts/state_io.py` + `state/schema.json` + `evals/smoke.md`） | 确定性 Python + 插件 `render(ctx)`（**标准库字符串模板，非 Jinja2**）；两引擎并行渲染 | 插件渲染异常 → **abort（硬门）** |
-| **S7 Validate** | S6 两引擎产物目录；`$ROOT/out/<run_id>/provenance_manifest.json`；只读复用 `/Users/bertram/Desktop/skills/.system/skill-creator/scripts/quick_validate.py` | `$ROOT/out/<run_id>/validation_report.json`（`{quick_validate, lint, security, copyright, all_passed}`）；`$ROOT/out/<run_id>/plugin_scan.json`（插件 6 类正则留痕） | 确定性 Python（官方 `quick_validate.py` + 自有 `validate/lint.py` + `validate/security.py` + `validate/copyright_gate.py` 全确定性） | 任一 hard gate 失败 → **abort，不安装不发布**；冒烟负例任一失败 → S7 abort |
+| **S7 Validate** | S6 两引擎产物目录；`$ROOT/out/<run_id>/provenance_manifest.json`；只读复用 `<SKILLS_ROOT>/.system/skill-creator/scripts/quick_validate.py` | `$ROOT/out/<run_id>/validation_report.json`（`{quick_validate, lint, security, copyright, all_passed}`）；`$ROOT/out/<run_id>/plugin_scan.json`（插件 6 类正则留痕） | 确定性 Python（官方 `quick_validate.py` + 自有 `validate/lint.py` + `validate/security.py` + `validate/copyright_gate.py` 全确定性） | 任一 hard gate 失败 → **abort，不安装不发布**；冒烟负例任一失败 → S7 abort |
 | **S8 Install** | S7 `validation_report.json`（`all_passed=true`）；S6 产物目录；`$ROOT/out/<run_id>/provenance_manifest.json`（`distribution` 决策） | `$ROOT/out/<run_id>/install_receipt.json`（`target_abs / symlink_abs / frontmatter_name / validate_passed / distribution`）；真源目录（见 0 节） | 确定性 Python（写前 `os.path.lexists`；内容 hash 相同跳过、不同报错不覆盖；`~/.claude/skills` 逐条绝对路径软链接） | 软链接已存在且指向不同 → **报错不覆盖**；`distribution=blocked` → 不安装 |
 | **S9 Eval** | `$ROOT/evals/`（cases / golden / `baseline.json` / `negative_cases.json` / `router_labels.json` / `capability_gold.jsonl`）；S8 产物；`$ROOT/out/<run_id>/` 全量中间产物 | `$ROOT/out/<run_id>/metrics.json`（9 指标，逐条带 `metric_type`）；`$ROOT/ITERATION_LOG.md`；`$ROOT/out/<run_id>/feedback.jsonl`；`$ROOT/round-tracker.md` | 确定性 Python 指标计算为主；`groundedness` / V2 / V3 的 judge 设计上预留为可插拔接口、**本批代码未实现该接口文件**，留待后续批次接入（标 `heuristic` 且值为 `null`） | 任一 measured 指标退化超 `$ROOT/evals/baseline.json` 基线 **5%** → CI fail |
 

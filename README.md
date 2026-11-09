@@ -37,7 +37,7 @@ GitHub 上已存在组织 `bookforge-ai`（bio：*"Non-fiction books, distilled 
 核心零第三方依赖，Python >= 3.9：
 
 ```bash
-cd /Users/bertram/Desktop/BookLeme
+cd $ROOT
 python3 -m bookleme --version
 python3 -m bookleme run --input evals/cases/synthetic/coach_book.md --title "人生设计练习册（合成）"
 python3 -m bookleme plugin validate bookleme/plugins/builtin/coach_dialogue.py

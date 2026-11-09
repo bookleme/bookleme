@@ -13,7 +13,7 @@ from pathlib import Path
 from ..config import SKILLS_ROOT
 from ..hashing import sha256_file
 
-CLAUDE_SKILLS = Path("/Users/bertram/.claude/skills")
+CLAUDE_SKILLS = Path(os.environ.get("BOOKLEME_CLAUDE_SKILLS", str(Path.home() / ".claude/skills")))
 
 
 def install_skill(skill_dir: Path, *, category: str, display_name: str, slug: str,

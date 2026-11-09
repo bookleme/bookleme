@@ -21,7 +21,7 @@ PROGRESS_PATH = ROOT / "progress.md"
 ITERATION_LOG_PATH = ROOT / "ITERATION_LOG.md"
 
 # The only location outside the workspace we are allowed to write to.
-SKILLS_ROOT = Path("/Users/bertram/Desktop/skills")
+SKILLS_ROOT = Path(os.environ.get("BOOKLEME_SKILLS_ROOT", str(Path.home() / "Desktop/skills")))
 OFFICIAL_QUICK_VALIDATE = SKILLS_ROOT / ".system/skill-creator/scripts/quick_validate.py"
 
 

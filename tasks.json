@@ -38,6 +38,6 @@
       "note": "默认只准备到可发布状态，不擅自创建远端仓库"
     }
   ],
-  "acceptance": "/Users/bertram/Desktop/BookLeme/docs/ACCEPTANCE-M0-M3.md",
+  "acceptance": "$ROOT/docs/ACCEPTANCE-M0-M3.md",
   "note": "本批只推进 M0-M3 的可运行骨架；M4/M5 为后续批次。"
 }

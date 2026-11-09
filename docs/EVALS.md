@@ -1,9 +1,9 @@
 # BookLeme 评测与硬验收（M1 设计冻结）
 
-> **M2 实现口径（以代码为准，2026-11-08）**：本文件描述设计目标；实际实现在 `/Users/bertram/Desktop/BookLeme/bookleme/`。共享中间 IR 在 `cache/<book_sha256前12>/`，`out/<run_id>/` 只放本次产物与报告；`router_result.json`、`provenance_manifest.json` 按 run 隔离。完整差异见 `docs/ARCHITECTURE.md` 的「M2 实现口径校正」表。文中凡提「可插拔 LLM 接口」，一律按统一口径理解：**设计上预留为可插拔接口，本批代码未实现该接口文件，留待后续批次接入**（`bookleme/llm/client.py` 与 `CapabilityExtractor` Protocol 本批均不存在，只有 `bookleme/llm/__init__.py` 的 `LLM_AVAILABLE = False` 占位）。
+> **M2 实现口径（以代码为准，2026-11-08）**：本文件描述设计目标；实际实现在 `$ROOT/bookleme/`。共享中间 IR 在 `cache/<book_sha256前12>/`，`out/<run_id>/` 只放本次产物与报告；`router_result.json`、`provenance_manifest.json` 按 run 隔离。完整差异见 `docs/ARCHITECTURE.md` 的「M2 实现口径校正」表。文中凡提「可插拔 LLM 接口」，一律按统一口径理解：**设计上预留为可插拔接口，本批代码未实现该接口文件，留待后续批次接入**（`bookleme/llm/client.py` 与 `CapabilityExtractor` Protocol 本批均不存在，只有 `bookleme/llm/__init__.py` 的 `LLM_AVAILABLE = False` 占位）。
 
 > 状态：M1 设计冻结。本文定义评测集来源、指标口径、CI 回归门、全量硬验收清单与冒烟测试。
-> 前缀 `$ROOT = /Users/bertram/Desktop/BookLeme`。
+> 前缀 `$ROOT = $ROOT`。
 > 本机零第三方依赖：评测运行器用标准库 `unittest` 组织；指标计算确定性；`groundedness` / V2 / V3 的 judge 设计上预留为可插拔接口、**本批代码未实现该接口文件**，留待后续批次接入（本批确定性兜底，标 `heuristic`）。本批 S4 为确定性抽取器（合成书显式结构化标记），**未实现 LLM 抽取、未验证「框架优于摘要」**。
 
 ---

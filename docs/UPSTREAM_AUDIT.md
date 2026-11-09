@@ -1,7 +1,7 @@
 # BookLeme M0 — 上游本地源码审计笔记
 
 > **本文件仅用于研究对齐，未导入任何上游代码。**
-> 全部结论来自对只读参考目录 `/Users/bertram/Desktop/BookLeme-上游参考/` 的 `Read` / `Grep` 逐字阅读；本轮未 `git clone`、未联网、未修改参考目录内任何文件、未把上游任何源码或模板复制进 `bookleme/` 项目。
+> 全部结论来自对只读参考目录 `$UPSTREAM_REF/` 的 `Read` / `Grep` 逐字阅读；本轮未 `git clone`、未联网、未修改参考目录内任何文件、未把上游任何源码或模板复制进 `bookleme/` 项目。
 > 审计对象：上游 `virgiliojr94/book-to-skill`（MIT / Python / master）。star 数等 GitHub 元数据不在此目录内，属计划模式在线取证范畴，见 ADR-001。
 > 审计日期：2026-11-08（M0 研究对齐阶段）。本机 `python3` 为 3.13.12，缺 `yaml/jsonschema/pytest/jinja2`（见 ADR-001 末节）。
 

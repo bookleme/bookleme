@@ -1,9 +1,9 @@
 # BookLeme 忠实度层（M1 设计冻结）
 
-> **M2 实现口径（以代码为准，2026-11-08）**：本文件描述设计目标；实际实现在 `/Users/bertram/Desktop/BookLeme/bookleme/`。共享中间 IR 在 `cache/<book_sha256前12>/`，`out/<run_id>/` 只放本次产物与报告；`router_result.json`、`provenance_manifest.json` 按 run 隔离。完整差异见 `docs/ARCHITECTURE.md` 的「M2 实现口径校正」表。文中凡提「可插拔 LLM 接口」，一律按统一口径理解：**设计上预留为可插拔接口，本批代码未实现该接口文件，留待后续批次接入**（`bookleme/llm/client.py` 与 `CapabilityExtractor` Protocol 本批均不存在，只有 `bookleme/llm/__init__.py` 的 `LLM_AVAILABLE = False` 占位）。
+> **M2 实现口径（以代码为准，2026-11-08）**：本文件描述设计目标；实际实现在 `$ROOT/bookleme/`。共享中间 IR 在 `cache/<book_sha256前12>/`，`out/<run_id>/` 只放本次产物与报告；`router_result.json`、`provenance_manifest.json` 按 run 隔离。完整差异见 `docs/ARCHITECTURE.md` 的「M2 实现口径校正」表。文中凡提「可插拔 LLM 接口」，一律按统一口径理解：**设计上预留为可插拔接口，本批代码未实现该接口文件，留待后续批次接入**（`bookleme/llm/client.py` 与 `CapabilityExtractor` Protocol 本批均不存在，只有 `bookleme/llm/__init__.py` 的 `LLM_AVAILABLE = False` 占位）。
 
-> 状态：M1 设计冻结。上游 "no hallucination" 是营销话术（上游仓库 `README.md:53/:70`、`docs/faq.md:50-52` 有此宣称），全仓**无** groundedness / 逐字引文 / claim ledger / 覆盖率自动回验，`tools/evals/score.py:2/27` 只做合成轨迹的路由分类与 usage 记账且不推断未观测状态——这正是本忠实度层的立足点（上游证据与隔离参考目录 `/Users/bertram/Desktop/BookLeme-上游参考/` 详见 `$ROOT/docs/UPSTREAM_AUDIT.md`）。本层把它拆解为**可测指标 + 逐字引文校验 + 断言台账**，并强制区分 `measured` / `heuristic`。
-> 前缀 `$ROOT = /Users/bertram/Desktop/BookLeme`。**共享中间 IR 落 `$ROOT/cache/<book_sha256前12>/`（跨 run 共享）**，本次运行产物与报告落 `$ROOT/out/<run_id>/`；以 `docs/ARCHITECTURE.md`「M2 实现口径校正」表为准、以代码为准。
+> 状态：M1 设计冻结。上游 "no hallucination" 是营销话术（上游仓库 `README.md:53/:70`、`docs/faq.md:50-52` 有此宣称），全仓**无** groundedness / 逐字引文 / claim ledger / 覆盖率自动回验，`tools/evals/score.py:2/27` 只做合成轨迹的路由分类与 usage 记账且不推断未观测状态——这正是本忠实度层的立足点（上游证据与隔离参考目录 `$UPSTREAM_REF/` 详见 `$ROOT/docs/UPSTREAM_AUDIT.md`）。本层把它拆解为**可测指标 + 逐字引文校验 + 断言台账**，并强制区分 `measured` / `heuristic`。
+> 前缀 `$ROOT = $ROOT`。**共享中间 IR 落 `$ROOT/cache/<book_sha256前12>/`（跨 run 共享）**，本次运行产物与报告落 `$ROOT/out/<run_id>/`；以 `docs/ARCHITECTURE.md`「M2 实现口径校正」表为准、以代码为准。
 > 本机零第三方依赖：逐字引文校验用标准库 `unicodedata`（**受限** NFKC：康熙部首 + CJK 兼容表意文字，见第 5 节）+ 内置子串 / shingle 计算；V2 / V3 的 judge 设计上预留为可插拔接口、**本批代码未实现该接口文件**，留待后续批次接入（本批以确定性兜底，结论一律标 `heuristic`）。**本批 S4 能力抽取为确定性抽取器（合成书显式结构化标记），未实现 LLM 抽取，未验证「框架优于摘要」。**
 
 ---

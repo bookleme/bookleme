@@ -22,3 +22,8 @@ evals/cases/user_books/*
 *.mobi
 *.azw3
 !.github/**/*.pdf
+
+# 本地运行记录：含本机绝对路径与 run 历史，不入库
+state.json
+progress.md
+ITERATION_LOG.md
