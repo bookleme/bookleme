@@ -20,3 +20,11 @@
 ## 商标与平台
 
 AlphaEngine / AlphaClaw / Claude Code / Codex / WorkBuddy 等名称归各自权利人所有，本项目与之无隶属或授权关系。
+
+## 许可范围
+
+本仓库的 MIT 许可只覆盖转换器（代码 + 技能定义），**不覆盖任何用本工具处理的书籍或文档**。本仓库不含任何书籍原文、封面或受版权保护的文本；生成自第三方书籍的 Skill 默认私有、不得分发，公开分发需自行确认使用权。详见 `docs/COPYRIGHT.md`。
+
+## 与同名项目的关系
+
+GitHub 上的 `bookforge-ai/bookforge-skills` 与本项目同名同概念但定位不同（它做 skills 产物库，本项目做书 → Skill 的转换器工具链），两者无隶属关系，本项目未使用其任何代码或内容。详见 `README.md` 对比表。
