@@ -1,80 +1,274 @@
-# 读了么（BookLeme）
+<p align="center">
+  <img src="docs/assets/bookleme-banner.png" alt="BookLeme — From Books to Skills" width="100%">
+</p>
 
-[![CI](https://github.com/bookleme/bookleme/actions/workflows/ci.yml/badge.svg)](https://github.com/bookleme/bookleme/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Zero deps](https://img.shields.io/badge/runtime-zero%20third--party%20deps-brightgreen.svg)](./pyproject.toml)
+<h1 align="center">读了么 · BookLeme</h1>
 
-把一本书编译成可安装的 Agent Skill。通用，不限金融领域；**自研**，不复用上游仓库代码。
+<p align="center">
+  <a href="README.md"><strong>简体中文</strong></a> ·
+  <a href="README.en.md">English</a>
+</p>
 
-## 它和 virgiliojr94/book-to-skill 有什么不同
+<p align="center">
+  <strong>把一本书编译成可安装的 Agent Skill —— 从「读过」到「会用」。</strong>
+</p>
 
-| 维度 | 上游项目 | BookLeme |
-|---|---|---|
-| 产物 | 可查阅的知识包（SKILL.md + chapters + glossary/patterns/cheatsheet） | **双引擎**：知识包 + 会运行的行为 Skill（教练对话 / 专业分析流水线） |
-| 生成器 | 一份巨型 SKILL.md 操作规程，由宿主 Agent 逐步执行，不可单测、不可 diff | 代码化 stage DAG S0–S9，中间产物全部有 JSON Schema，**stage 级** sha256 幂等续跑（上游是整运行级 `reuse_is_safe()` 复用，粒度不同） |
-| 体裁 | 固定 5 文件 + 固定 10 节模板 | **可插拔插件**：新增体裁只写一个文件定义 schema / 状态机 / 输出契约 / 反模式 |
-| 忠实度 | "no hallucination" 是叙述性主张，无自动回验 | 逐字引文校验 + claim ledger + 7 个指标，明确区分 measured / heuristic |
-| 输入 | 本地技术书 PDF，扫描版中止 | 混合输入（本地有权文件 + 标注可信度的公开资料），中文分段不依赖 "Chapter N" |
-| 交互 | 5 处强制停人 | 全部交互前移为启动参数，流水线内零停顿 |
-| 版权 | 靠 prompt 规则与自律 | provenance manifest + 6 条确定性硬门 + 默认私有 |
-| 分发 | 单个宿主技能目录 | 一套两出口：本机 WorkBuddy Skill + 可独立开源的 GitHub 项目 |
+<p align="center">
+  <a href="https://github.com/bookleme/bookleme/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/bookleme/bookleme/ci.yml?style=for-the-badge&label=CI&color=brightgreen" alt="CI"></a>
+  <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License">
+  <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.9+">
+  <img src="https://img.shields.io/badge/runtime-zero%20third--party%20deps-brightgreen?style=for-the-badge" alt="Zero deps">
+  <img src="https://img.shields.io/badge/formats-PDF%20%C2%B7%20EPUB%20%C2%B7%20DOCX%20%C2%B7%20MD%20%C2%B7%20HTML%20%C2%B7%20RTF%20%C2%B7%20MOBI-green?style=for-the-badge" alt="Formats">
+</p>
 
-借鉴的只有三条**工程上采纳、但未经本项目验证**的设计原理：编译期与运行期分离、渐进式披露三级、确定性提取与概率性生成解耦。「提炼结构而非摘要」同样只是设计选择——上游把它列为未验证假设 PD-05（任务状态 `BLOCKED`），本项目标为 `UNVERIFIED`（认知状态），**不得表述为已验证结论**。详见 `docs/decisions/ADR-001-research-convergence.md` 与 `docs/UPSTREAM_AUDIT.md`。
+<p align="center">
+  <a href="#why">为什么</a> ·
+  <a href="#what">生成什么</a> ·
+  <a href="#engines">双引擎</a> ·
+  <a href="#fidelity">忠实度</a> ·
+  <a href="#quickstart">快速开始</a> ·
+  <a href="#arch">架构</a> ·
+  <a href="#compare">同类对比</a> ·
+  <a href="#roadmap">路线图</a> ·
+  <a href="#docs">文档</a>
+</p>
 
-**关于「零 LLM 调用」的精确口径**：上游**生产期抽取器与当前评测工具**的 Python 代码里没有任何 LLM API 调用，生成阶段靠宿主 Agent 的常规推理；但其研究计划中规划的 live 评测 harness 允许引入模型，因此不能笼统写成「全仓任何地方都不含模型调用」。本项目本批同理：核心运行时零 LLM 调用，S4 抽取与 S3 歧义判定均为确定性实现，LLM judge 是后续批次的可插拔接口。
+---
 
-## 与同名项目 bookforge-ai 的区别（避免混淆）
+<a id="why"></a>
 
-GitHub 上已存在组织 `bookforge-ai`（bio：*"Non-fiction books, distilled into agent skills."*）及其仓库 `bookforge-ai/bookforge-skills`（**42 stars / 2 forks**，CC-BY-SA-4.0，描述 *"Agent skills distilled from non-fiction books. Works with Claude Code, Codex, Gemini CLI, Cursor, Copilot, and 20+ platforms."*，2026-03 创建）。它与本项目**同名同概念、但定位不同**，为避免搜索与认知混淆，本项目已更名为 **读了么（BookLeme）**：
+## 为什么需要它
 
-| | `bookforge-ai/bookforge-skills` | 读了么（BookLeme） |
-|---|---|---|
-| 定位 | **产物库**：已蒸馏好的 skills 集合 | **转换器工具链**：书 → Skill 的编译器 |
-| 交付物 | skills 文件本身 | 双引擎流水线 + 体裁插件体系 + 忠实度评测 |
-| 技术栈 | JavaScript | Python，stage DAG，零第三方依赖 |
-| 许可 | CC-BY-SA-4.0 | MIT |
+模型已经足够聪明，真正稀缺的是**人类实际的工作经验**。
 
-**两者无隶属关系，本项目未使用其任何代码或内容。**本项目自研自 `virgiliojr94/book-to-skill` 的源码审计之后（未导入其任何代码）。
+而一本书里最值钱的，从来不是结论，而是作者的**工作方式**：
+
+| 书 | 真正值钱的部分 |
+|---|---|
+| 《人生设计课》 | 不是人生答案，而是那串**提问顺序** —— 追问出用户自己的答案 |
+| 《穿透财报》 | 不是行业结论，而是**判断条件 + 证据规则 + 证伪条件** |
+
+问题是：读完之后，这些「工作方式」散落在 300 页里，无法被调用、无法被复用、无法被验证。
+
+**BookLeme 把它们编译成可运行的 Agent Skill。**
+
+<p align="center">
+  <img src="docs/assets/bookleme-witch-study.png" alt="把知识编译成技能" width="72%">
+</p>
+
+<details>
+<summary><b>三条设计原理</b>（工程上采纳，但未经本项目验证）</summary>
+
+1. **编译期 / 运行期分离** —— 书只在编译时读一遍，运行时按需加载知识分片
+2. **渐进式披露三级** —— 常驻入口 → 按需分片 → 本地全文
+3. **确定性提取与概率性生成解耦** —— 可单测、可 diff、可回归
+
+> 「提炼结构而非摘要」只是设计选择，不是已被验证的结论。本项目把它标为 `UNVERIFIED`，不写成既成事实。
+
+</details>
+
+---
+
+<a id="what"></a>
+
+## 它生成什么
+
+不是「读书笔记」，而是**两类可安装、可调用、可验证的产物**：
+
+<p align="center">
+  <img src="docs/assets/bookleme-witch-library.png" alt="双引擎产物" width="62%">
+</p>
+
+<table>
+<tr><th></th><th>📚 知识包 · <code>knowledge_pack</code></th><th>⚡ 行为 Skill · <code>behavior_skill</code></th></tr>
+<tr><td><b>形态</b></td><td>可查阅的结构化知识库</td><td>会运行的流程与状态机</td></tr>
+<tr><td><b>装的是</b></td><td>Topic Index 路由表 + 按需加载的框架分片 + 决策速查 + 出处清单</td><td>角色 + 硬约束 + 状态机 + 具名输出契约 + 反模式 + 情绪护栏</td></tr>
+<tr><td><b>典型场景</b></td><td>「这本书里 X 框架怎么用？」</td><td>「陪我做一次完整的人生设计对话」</td></tr>
+<tr><td><b>样例</b></td><td><code>examples/reference/</code>（11 文件）</td><td><code>examples/coach/</code>（14 文件）</td></tr>
+</table>
+
+**核心特性**
+
+- 🎛 **双引擎自动路由** —— 按 12 个确定性体裁特征自动判定，也可人工指定；两引擎共享中间表示，一本书不会被读两遍
+- 🧩 **可插拔体裁插件** —— 新增体裁只需写一个文件（schema / 状态机 / 输出契约 / 反模式），零改核心
+- 🔍 **逐字忠实度回验** —— 每条引文必须是原文精确子串，7 个指标区分 `measured` / `heuristic`
+- 🛡 **版权工程化** —— 6 条确定性硬门 + provenance manifest + 默认私有，杜绝原文复现
+- ⚙️ **零第三方依赖** —— 核心只用 Python 标准库
+- 🔁 **stage 级幂等** —— sha256 断点续跑，删任一阶段产物只补该阶段
+
+---
+
+<a id="engines"></a>
+
+## 双引擎 · 可插拔体裁
+
+**体裁插件**决定一本书长成什么样子。内置 4 种：
+
+| 插件 | 体裁 | 状态 | 关键设计 |
+|---|---|---|---|
+| `coach_dialogue` | 教练 / 自我对话 | ✅ 已实现 | 一问一答状态机、结论归用户、情绪护栏、可中断续聊 |
+| `knowledge_reference` | 框架速查 | ✅ 已实现 | Topic Index 路由、按需加载、「书里没讲」必须拒答 |
+| `professional_analysis` | 专业分析流水线 | 🔜 M4 | 证据绑定、口径表、**每条结论必填证伪条件** |
+| `decision_checklist` | 决策清单 | 🔜 M4 | 阈值 / 权衡矩阵 / 决策树 / 不适用边界 |
+
+> 新增体裁 = 在 `bookleme/plugins/user/<genre_id>.py` 写一个文件。字段契约见 [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md)。
+
+**插件强制声明**（缺一即拒绝加载）：`state_machine`、`output_contract`、`hard_constraints`、`anti_patterns`、`voice_calibration`（语气 / 称谓 / 禁用语 / **结论归属**）、`copyright_profile`、`trigger_words`（3–5 个中文触发词）、`eval_prompts`（必须含至少 1 个负例）。
+
+---
+
+<a id="fidelity"></a>
+
+## 忠实度与版权
+
+上游项目把「no hallucination」写成主张，却没有自动回验。**我们把「零幻觉」拆成 7 个可测指标**：
+
+| 指标 | 类型 | 目标 | 本批评测 |
+|---|---|---|---|
+| `citation_resolution_rate` | measured | 1.00 | ✅ 1.00 |
+| `verbatim_violation_rate` | measured | 0.00 | ✅ 0.00 |
+| `negative_refusal_rate` | measured | 1.00 | ✅ 1.00 |
+| `trigger_hit_rate` | measured | ≥0.90 | ✅ 1.00 |
+| `artifact_compliance_rate` | measured | 1.00 | ✅ 1.00 |
+| `shingle_overlap_max` | measured | ≤0.10 | ✅ 0.084 |
+| `coverage_score` | measured | ≥0.85 | ⚠️ **0.667（未达标，如实保留）** |
+| `groundedness` | heuristic | 只报告 | `null`（LLM judge 未接入） |
+
+**6 条版权硬门**（任一失败即不安装、不发布）：单条引文 ≤150 字且逐字可追溯 · 总引文比 ≤0.03 · 连续复制 ≤150 字 · 13 字 shingle 重叠 ≤0.10 · 产物不含全文 / 切片 · `contains_original_text = false`。
+
+**版权边界**：输出是**结构化衍生笔记，不含原文段落**。第三方书籍生成的 Skill 默认私有、不得分发；公开分发需在启动命令显式给 `--public --confirm-public PUBLISH`。MIT 只覆盖转换器，不覆盖任何书籍。详见 [docs/COPYRIGHT.md](docs/COPYRIGHT.md)。
+
+---
+
+<a id="quickstart"></a>
 
 ## 快速开始
 
-核心零第三方依赖，Python >= 3.9：
-
 ```bash
-cd $ROOT
+git clone https://github.com/bookleme/bookleme.git
+cd bookleme
+
+# 零第三方依赖，Python ≥ 3.9 即可
 python3 -m bookleme --version
-python3 -m bookleme run --input evals/cases/synthetic/coach_book.md --title "人生设计练习册（合成）"
-python3 -m bookleme plugin validate bookleme/plugins/builtin/coach_dialogue.py
-python3 -m bookleme eval --run-id <run_id>
+
+# 端到端：书 → Skill
+python3 -m bookleme run --input evals/cases/synthetic/coach_book.md --title "我的第一本书"
+
+# 校验产物（官方校验器 + 自有 lint + 版权硬门）
+python3 -m bookleme validate examples/coach
+
+# 回归测试
 python3 -m unittest discover -s tests -v
 ```
 
-`run` 常用参数：`--engine auto|knowledge_pack|behavior_skill|both`、`--genre <plugin_id>`、
-`--no-router`、`--install`（写技能真源，默认关闭）、`--user-rights owned|licensed|public_domain|unknown`、
-`--public --confirm-public PUBLISH`（公开分发的启动前裸词确认，本批不会真的执行远端发布）。
+**常用参数**
 
-## 目录
+```bash
+--engine auto|knowledge_pack|behavior_skill|both   # 引擎选择
+--genre <plugin_id>                                # 强制指定体裁
+--no-router                                        # 关闭路由，双引擎全出
+--install                                          # 写入技能真源（默认关闭）
+--user-rights owned|licensed|public_domain|unknown # 使用权声明
+--public --confirm-public PUBLISH                  # 公开分发（裸词确认）
+```
 
-- `bookleme/` 核心库（extract / segment / router / capabilities / fidelity / render / plugins / validate / install / eval）
-- `configs/router.json` 12 个路由特征的 cap、权重、prior、hard gates（全部外置可 diff）
-- `schemas/*.schema.json` 7 个标准 JSON Schema
-- `bookleme/plugins/builtin/<genre>.py` 体裁插件
-- `evals/cases/synthetic/` 合成评测文本（零版权风险，带 golden 标记）
-- `out/<run_id>/` 每次运行的产物、校验报告与指标
-- `cache/<sha12>/` 共享中间表示（跨 run 复用）
-- `docs/` 设计与决策记录；`docs/decisions/` ADR
+---
 
-## 当前状态（如实标注）
+<a id="arch"></a>
 
-本批完成 **M0 研究对齐 / M1 设计冻结 / M2 核心引擎 / M3 首个产物** 的可运行骨架：
+## 架构 · S0–S9 编译流水线
 
-- ✅ S0–S9 端到端跑通；双引擎共享 IR；**stage 级** sha256 幂等与断点续跑（删 S5 输出只补 S5）；共享 IR 与 per-run 决策结果已隔离（`router_result.json` / `provenance_manifest.json` 按 run 落盘）；官方 `quick_validate.py` 与自有 lint 双校验；6 条版权硬门；冒烟负例；16 项回归测试全过。
-- ✅ 内置 2 个体裁插件：`coach_dialogue`（行为型）、`knowledge_reference`（知识型）。
-- ⚠️ **本批 S4 使用确定性抽取器**（合成书的 `[CAP]` 显式标记 / 无标记时的启发式卡片），S3 歧义判定使用确定性兜底并显式标记 `llm_judge_invoked: false`。LLM 抽取器与 3 独立 judge 是后续批次的接口占位，**当前不宣称已实现模型判断**。
-- ⚠️ `professional_analysis`、`decision_checklist` 两个插件、跨书合并、Web UI / 市场收益、OCR 与图表理解均属后续批次。
-- ⚠️ 指标中 `groundedness` / V2 / V3 为 heuristic，未接入 LLM judge 时值为 `null`，**不伪造数字**。三类上游数字一律不得转写成本项目结论：① `24×–51×` 是其 context-dump 对比自测；② `2.4×–15.6×` 是其 discovery-loop **模型估算**（`discovery_tax.py` 自述）；③ 论文约 `2×` token 主张仍处 `BLOCKED` 假设阶段；另有其约 `$1/书` 的 LLM 成本估算同样不是本项目实测。详见 `docs/decisions/ADR-003-fidelity-metrics.md`。
+```
+S0 输入登记 ─► S1 确定性提取 ─► S2 中文分段 ─┬─► S3 体裁路由 ────────┐
+                                              └─► S4 原子能力抽取 ────┼─► S5 忠实度校验
+                                                    （共享中间表示）  ┘
+                                                                          │
+                                S9 冒烟评测 ◄─ S8 安装 ◄─ S7 四重校验 ◄─ S6 双引擎渲染
+```
 
-## 版权
+**关键设计**：S3 与 S4 并行且都以 S2 为输入；两引擎共享 S1/S2/S4/S5 全部中间表示，**只有 S6 分流** —— 一本书不会被读两遍。
 
-MIT 只覆盖转换器。请只处理你有权使用的文件；输出是结构化衍生笔记，不是原文复现；第三方书籍生成的 Skill 默认私有，不得分发。详见 `docs/COPYRIGHT.md` 与 `NOTICE.md`。
+| 层 | 职责 | 执行者 |
+|---|---|---|
+| S0–S2 | 提取、归一、中文分段（不依赖 "Chapter N"） | 确定性 Python |
+| S3 | 12 特征体裁路由 + 歧义兜底（自动双引擎，不停人） | 确定性 + 可插拔 LLM |
+| S4 | 原子能力抽取（RIA++ 六段） | 确定性抽取器（LLM 抽取器为接口占位） |
+| S5 | 逐字引文校验 + claim ledger + 7 指标 | 确定性 + judge 占位 |
+| S6 | 插件驱动渲染（标准库字符串模板） | 确定性 Python |
+| S7–S9 | 四重校验、幂等安装、冒烟评测 | 确定性 Python |
+
+详细设计：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+---
+
+<a id="compare"></a>
+
+## 与同类项目对比
+
+<table>
+<tr><th></th><th><b>读了么 BookLeme</b></th><th><code>virgiliojr94/book-to-skill</code></th><th><code>bookforge-ai/bookforge-skills</code></th></tr>
+<tr><td><b>定位</b></td><td>书 → Skill 的<b>编译器工具链</b></td><td>书 → 知识包（靠宿主 Agent 执行）</td><td>已蒸馏 skills 的<b>产物库</b></td></tr>
+<tr><td><b>产物</b></td><td>知识包 <b>＋</b> 会运行的行为 Skill</td><td>仅知识包</td><td>skills 文件集合</td></tr>
+<tr><td><b>生成器</b></td><td>代码化 stage DAG，可单测 / 可 diff</td><td>一份巨型 SKILL.md 操作规程</td><td>—</td></tr>
+<tr><td><b>忠实度</b></td><td>7 指标 + 逐字引文校验 + 负例拒答</td><td>无自动回验</td><td>—</td></tr>
+<tr><td><b>体裁</b></td><td>可插拔插件，新增体裁只写一文件</td><td>固定 5 文件 + 10 节模板</td><td>—</td></tr>
+<tr><td><b>版权</b></td><td>6 条确定性硬门 + 默认私有</td><td>prompt 规则 + 自律</td><td>CC-BY-SA-4.0</td></tr>
+<tr><td><b>许可</b></td><td>MIT</td><td>MIT</td><td>CC-BY-SA-4.0</td></tr>
+</table>
+
+> 本项目自研自对 `book-to-skill` 的源码审计之后，**未导入其任何代码或模板**；与 `bookforge-ai` 无隶属关系，未使用其任何内容。逐条差异见 [docs/decisions/ADR-001-research-convergence.md](docs/decisions/ADR-001-research-convergence.md)。
+
+---
+
+<a id="roadmap"></a>
+
+## 路线图
+
+- ✅ **M0–M3** 研究对齐 · 设计冻结 · 核心引擎 · 首批插件与产物（**当前**）
+- 🔜 **M4** 补齐 `professional_analysis` / `decision_checklist` 插件、4 段合成书评测集、两本书 dogfood、接入 LLM judge
+- 🔜 **M5** 真源 Skill 安装、`evals/baseline.json` 出实测数、跨书能力合并
+
+**如实标注的边界**（本项目不夸大）：S4 当前为确定性抽取器；LLM judge 未接入（`groundedness` / V2 / V3 为 `null`）；`coverage_score` 0.667 未达 0.85 目标；`professional_analysis` 与 `decision_checklist` 尚在 M4。
+
+---
+
+<a id="docs"></a>
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | S0–S9 流水线、幂等模型、共享 IR、可观测性 |
+| [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) | 16 个插件必填字段、4 内置插件骨架、加载与安全扫描 |
+| [docs/FIDELITY.md](docs/FIDELITY.md) | 7 指标、逐字引文校验、V1/V2/V3、未验证假设表 |
+| [docs/COPYRIGHT.md](docs/COPYRIGHT.md) | 混合输入、provenance、6 条硬门、可分发性判定 |
+| [docs/EVALS.md](docs/EVALS.md) | 评测集设计、22 条硬验收清单、冒烟测试 |
+| [docs/ACCEPTANCE-M0-M3.md](docs/ACCEPTANCE-M0-M3.md) | 逐条验收记录与实测数字 |
+| [docs/UPSTREAM_AUDIT.md](docs/UPSTREAM_AUDIT.md) | 上游源码逐字审计笔记 |
+| [docs/decisions/](docs/decisions/) | ADR-001 研究收敛性 · ADR-002 双引擎 · ADR-003 忠实度指标 |
+
+---
+
+## 贡献
+
+欢迎 Issue 与 PR。提交前请跑：
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 -m bookleme schema --state
+python3 -m bookleme plugin validate bookleme/plugins/builtin/coach_dialogue.py
+```
+
+**红线**：绝不提交书籍原文 / 封面 / 扫描件；绝不导入上游仓库代码；绝不把未验证假设写成既成事实。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+---
+
+## 许可
+
+[MIT](LICENSE) © 2026 BookLeme contributors
+
+MIT 只覆盖转换器（代码 + 技能定义），**不覆盖任何用本工具处理的书籍或文档**。详见 [NOTICE.md](NOTICE.md)。
+
+<p align="center">
+  <sub>📖 读了么 —— 你读了吗？读了，就变成你的技能。</sub>
+</p>

@@ -28,3 +28,9 @@ AlphaEngine / AlphaClaw / Claude Code / Codex / WorkBuddy 等名称归各自权�
 ## 与同名项目的关系
 
 GitHub 上的 `bookforge-ai/bookforge-skills` 与本项目同名同概念但定位不同（它做 skills 产物库，本项目做书 → Skill 的转换器工具链），两者无隶属关系，本项目未使用其任何代码或内容。详见 `README.md` 对比表。
+
+## 插图说明（重要）
+
+`docs/assets/` 下的三张插图（`bookleme-banner.png` / `bookleme-witch-library.png` / `bookleme-witch-study.png`）为 **AI 生成的视觉素材**，采用「魔法学院」艺术风格，**非官方授权，与任何影视、文学或游戏 IP 无隶属、赞助或背书关系**，仅作本项目 README 的展示用途。
+
+若你 fork 本项目并对外分发，**建议替换为自有素材**，以避免第三方 IP 的外观相似性争议。本项目的代码与文档不含任何第三方 IP 元素。
