@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme router_result.json",
+  "type": "object",
+  "required": ["schema_version", "features", "scores", "top1", "top2", "margin", "confidence", "engines", "genres", "override_source", "reason"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "features": { "type": "object" },
+    "normalized_features": { "type": "object" },
+    "hard_gates_fired": { "type": "array", "items": { "type": "string" } },
+    "scores": { "type": "object" },
+    "top1": { "type": "string" },
+    "top2": { "type": "string" },
+    "margin": { "type": "number" },
+    "confidence": { "type": "number" },
+    "engines": { "type": "array", "items": { "type": "string", "enum": ["knowledge_pack", "behavior_skill"] } },
+    "genres": { "type": "array", "items": { "type": "string" } },
+    "override_source": { "type": "string", "enum": ["cli", "run_yaml", "plugin_default", "auto", "ambiguity"] },
+    "reason": { "type": "string" }
+  }
+}

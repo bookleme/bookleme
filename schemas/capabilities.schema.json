@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme capabilities.json",
+  "type": "object",
+  "required": ["schema_version", "book_sha256", "extractor", "capabilities"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "book_sha256": { "type": "string" },
+    "extractor": { "type": "string", "enum": ["deterministic-markup", "heuristic", "llm"] },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["capability_id", "title", "source_id", "span", "ria", "status"],
+        "properties": {
+          "capability_id": { "type": "string" },
+          "title": { "type": "string" },
+          "genre_tags": { "type": "array", "items": { "type": "string" } },
+          "engine_targets": { "type": "array", "items": { "type": "string" } },
+          "source_id": { "type": "string" },
+          "span": {
+            "type": "object",
+            "required": ["segment_id", "char_start", "char_end"],
+            "properties": {
+              "chapter": { "type": "string" },
+              "section": { "type": "string" },
+              "page": { "type": "integer" },
+              "segment_id": { "type": "string" },
+              "char_start": { "type": "integer" },
+              "char_end": { "type": "integer" }
+            }
+          },
+          "ria": {
+            "type": "object",
+            "required": ["R_quote", "I_rephrase", "A1_author_case", "A2_user_trigger", "A3_steps", "B_not_applicable"],
+            "properties": {
+              "R_quote": { "type": "string" },
+              "I_rephrase": { "type": "string" },
+              "A1_author_case": { "type": "string" },
+              "A2_user_trigger": { "type": "string" },
+              "A3_steps": { "type": "array", "items": { "type": "string" } },
+              "B_not_applicable": { "type": "string" }
+            }
+          },
+          "claims": { "type": "array", "items": { "type": "string" } },
+          "checks": { "type": "object" },
+          "confidence": { "type": "object" },
+          "status": { "type": "string", "enum": ["draft", "verified", "rejected"] }
+        }
+      }
+    }
+  }
+}

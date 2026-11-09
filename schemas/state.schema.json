@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme state.json",
+  "type": "object",
+  "required": ["schema_version", "latest_run_id", "runs"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "latest_run_id": { "type": "string" },
+    "runs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["created_at", "book_sha256", "model_fingerprint", "stages"],
+        "properties": {
+          "created_at": { "type": "string" },
+          "book_sha256": { "type": "string" },
+          "model_fingerprint": { "type": "string" },
+          "engine_config_hash": { "type": "string" },
+          "plugin_hash": { "type": "string" },
+          "stages": { "type": "object" }
+        }
+      }
+    }
+  }
+}

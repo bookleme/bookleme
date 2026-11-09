@@ -1,0 +1,18 @@
+[project]
+name = "bookleme"
+version = "0.1.0"
+description = "Compile a book into installable agent skills: knowledge packs and behavior skills."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+bookleme = "bookleme.cli:main"
+
+[tool.bookleme]
+# 核心零第三方依赖：配置用 JSON，校验用内置子集校验器，测试用 unittest。
+# .vendor/ 里的 PyYAML / jsonschema / pytest / jinja2 仅用于可选的官方校验器与 CI 双保险。
+config_format = "json"
+schema_format = "json-schema-draft-07"
+test_runner = "unittest"

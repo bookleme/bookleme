@@ -1,0 +1,24 @@
+# 可选依赖（仅用于验收双保险，不入库）
+.vendor/
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+
+# 运行期产物
+out/
+cache/
+logs/
+runs/
+sources/public/*.json
+sessions/
+
+# 用户自备书籍：绝不入库（版权）
+evals/cases/user_books/*
+!evals/cases/user_books/.gitkeep
+*.pdf
+*.epub
+*.mobi
+*.azw3
+!.github/**/*.pdf

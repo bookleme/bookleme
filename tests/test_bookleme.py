@@ -1,0 +1,232 @@
+"""BookLeme regression tests. Standard-library unittest only (zero dependencies)."""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from bookleme import __version__
+from bookleme.capabilities.ria import validate_ria
+from bookleme.config import ROOT, SCHEMA_DIR, STATE_PATH, load_json, load_router_config, load_run_config
+from bookleme.fidelity.overlap import shingle_jaccard, total_quote_ratio
+from bookleme.fidelity.quotes import verify_quotes
+from bookleme.hashing import sha256_text, stage_input_hash
+from bookleme.plugins import load_plugins, validate_plugin
+from bookleme.render import build_description
+from bookleme.router import compute_features, normalize_features
+from bookleme.schema_check import validate as schema_validate
+from bookleme.state import StateStore
+from bookleme.validate import lint_skill_dir, run_copyright_gate, validate_skill, validate_text
+
+SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
+
+
+class TestBasics(unittest.TestCase):
+    def test_version_and_configs(self):
+        self.assertEqual(__version__, "0.1.0")
+        cfg = load_run_config()
+        self.assertEqual(cfg["max_quote_chars"], 150)
+        self.assertIn("weights", load_router_config())
+
+    def test_all_schemas_loadable_and_state_valid(self):
+        for f in sorted(SCHEMA_DIR.glob("*.schema.json")):
+            with self.subTest(schema=f.name):
+                self.assertIsInstance(load_json(f), dict)
+        if STATE_PATH.exists():
+            errors = schema_validate(load_json(STATE_PATH),
+                                     load_json(SCHEMA_DIR / "state.schema.json"))
+            self.assertEqual(errors, [], f"state.json 不合 schema: {errors}")
+
+    def test_normalize_is_scoped_not_whole_text_nfkc(self):
+        # 上游 sanitize.py:168-171 明确禁止整篇 NFKC；普通文本必须逐字节保留，
+        # 只有康熙部首 U+2F00-2FDF 折叠为对应表意字。
+        from bookleme.extract.base import normalize
+        raw = "ＡＢＣ１２３ ① ﬃ ㍿ 判断⼒\u200b"
+        text, cmap = normalize(raw)
+        for fragment in ("ＡＢＣ１２３", "①", "ﬃ", "㍿"):
+            self.assertIn(fragment, text, f"合法文本被改写：{fragment!r}")
+        self.assertIn("判断力", text, "康熙部首未被折叠")
+        self.assertNotIn("\u200b", text)
+        self.assertEqual(len(text), len(cmap))
+        self.assertEqual(text, normalize(raw)[0], "归一必须确定性可复现")
+
+    def test_hashing_is_deterministic(self):
+        a = stage_input_hash([SYNTHETIC, "x", {"b": 2, "a": 1}])
+        b = stage_input_hash([SYNTHETIC, "x", {"a": 1, "b": 2}])
+        self.assertEqual(a, b)
+        self.assertEqual(sha256_text("abc"), sha256_text("abc"))
+
+    def test_state_idempotency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = StateStore(Path(tmp) / "state.json")
+            store.ensure_run("r1", "sha", "fp")
+            out = Path(tmp) / "out.json"
+            out.write_text("{}", encoding="utf-8")
+            h = "hash-1"
+            self.assertFalse(store.should_skip("r1", "S5", h, [out]))
+            store.mark("r1", "S5", h, [out])
+            self.assertTrue(store.should_skip("r1", "S5", h, [out]))
+            self.assertFalse(store.should_skip("r1", "S5", "hash-2", [out]))
+            out.unlink()
+            self.assertFalse(store.should_skip("r1", "S5", h, [out]))
+
+
+class TestRouter(unittest.TestCase):
+    def test_features_deterministic_and_normalised(self):
+        text = SYNTHETIC.read_text(encoding="utf-8")
+        segments = [{"segment_id": "seg-001", "heading": "第一章", "level": 1,
+                     "char_range": [0, len(text)]}]
+        f1 = compute_features(text, segments, [])
+        f2 = compute_features(text, segments, [])
+        self.assertEqual(f1, f2)
+        self.assertEqual(set(f1), set(load_router_config()["features"]))
+        norm = normalize_features(f1, load_router_config())
+        self.assertTrue(all(0.0 <= v <= 1.0 for v in norm.values()))
+
+
+class TestPlugins(unittest.TestCase):
+    def test_builtin_plugins_validate(self):
+        registry, diagnostics = load_plugins()
+        self.assertGreaterEqual(len(registry), 2)
+        for gid, plugin in registry.items():
+            with self.subTest(plugin=gid):
+                self.assertEqual(validate_plugin(plugin, plugin.source_path), [])
+        self.assertTrue(all(d["status"] == "loaded" for d in diagnostics))
+
+    def test_description_has_3_to_5_chinese_triggers(self):
+        registry, _ = load_plugins()
+        cfg = load_run_config()
+        for gid, plugin in registry.items():
+            with self.subTest(plugin=gid):
+                desc = build_description(plugin, "测试之书", cfg)
+                hits = sum(1 for w in plugin.trigger_words if w in desc)
+                self.assertTrue(3 <= hits <= 5)
+                self.assertLessEqual(len(desc), 1024)
+                self.assertNotIn("<", desc)
+                self.assertNotIn(">", desc)
+
+
+class TestFidelity(unittest.TestCase):
+    def test_quote_verification_and_ria(self):
+        cfg = load_run_config()
+        full = "原文句子一。原文句子二。" + "其他内容" * 50
+        caps = {"schema_version": "1.0", "book_sha256": "", "extractor": "deterministic-markup",
+                "capabilities": [{
+                    "capability_id": "CAP-0001", "title": "T", "source_id": "SRC-001",
+                    "span": {"segment_id": "seg-001", "char_start": -1, "char_end": -1},
+                    "ria": {"R_quote": "原文句子一", "I_rephrase": "先确认前提再行动",
+                            "A1_author_case": "书中案例", "A2_user_trigger": "当用户卡住时",
+                            "A3_steps": ["一步", "二步"], "B_not_applicable": "不适用情形"},
+                    "claims": ["CLM-0001"], "checks": {}, "confidence": {"tier": "S"},
+                    "status": "draft"}]}
+        verified, records = verify_quotes(caps, full, [], cfg)
+        self.assertTrue(records[0]["quote_verified"])
+        self.assertEqual(verified["capabilities"][0]["status"], "verified")
+        self.assertEqual(validate_ria(caps["capabilities"][0]["ria"], cfg), [])
+
+    def test_copyright_gate_blocks_a_verbatim_dump(self):
+        cfg = load_run_config()
+        full = "这是一段用于测试的原文内容，重复出现以避免统计偶然性。" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "skill"
+            (d / "references").mkdir(parents=True)
+            (d / "SKILL.md").write_text("---\nname: x\n---\n\n少量说明\n", encoding="utf-8")
+            (d / "references" / "body.md").write_text(full[:600], encoding="utf-8")
+            gate = run_copyright_gate(d, full, [full[:600]], cfg)
+            self.assertFalse(gate["passed"])
+            names = {c["name"] for c in gate["checks"] if not c["passed"]}
+            self.assertTrue({"single_quote_char_limit", "total_quote_ratio",
+                             "max_contiguous_copy_chars", "shingle_overlap_max"} & names)
+
+    def test_shingle_and_ratio_helpers(self):
+        self.assertAlmostEqual(shingle_jaccard("abcdefg", "abcdefg", 3), 1.0)
+        self.assertGreater(total_quote_ratio(["abc"], "abc"), 0)
+
+
+class TestValidation(unittest.TestCase):
+    def test_quick_validate_rules(self):
+        good = "---\nname: demo-skill\ndescription: 当用户迷茫时使用\n---\n\n## 核心定位\n\nx\n"
+        self.assertEqual(validate_text(good), [])
+        self.assertTrue(any("Unexpected key" in e for e in validate_text(
+            "---\nname: demo\nversion: 5.1\ndescription: x\n---\n")))
+        self.assertTrue(any("hyphen-case" in e for e in validate_text(
+            "---\nname: Bad_Name\ndescription: x\n---\n")))
+        self.assertTrue(any("TODO" in e for e in validate_text(
+            "---\nname: demo\ndescription: [TODO: fill]\n---\n")))
+
+    def test_generated_artifacts_pass_all_gates(self):
+        builds = sorted((ROOT / "out").glob("*/build/*/*"))
+        if not builds:
+            self.skipTest("尚未生成产物，请先运行一次 bookleme run")
+        for d in builds[-2:]:
+            with self.subTest(artifact=d.name):
+                self.assertEqual(validate_skill(d), [])
+                self.assertEqual(lint_skill_dir(d), [])
+
+
+class TestEndToEnd(unittest.TestCase):
+    def test_router_result_is_per_run(self):
+        """--engine/--genre 是 per-run 参数，不得被另一 run 的路由结果串味。"""
+        from bookleme.pipeline import Pipeline
+        cfg = load_run_config()
+        pipe = Pipeline(cfg, load_router_config())
+        dual = pipe.run([str(SYNTHETIC)], run_id="unittest-router-dual",
+                        title="人生设计练习册（合成）")
+        single = pipe.run([str(SYNTHETIC)], run_id="unittest-router-single",
+                          title="人生设计练习册（合成）",
+                          genre="coach_dialogue", engine="behavior_skill")
+        self.assertEqual(len(dual["artifacts"]), 2)
+        self.assertEqual(len(single["artifacts"]), 1)
+        rd = load_json(Path(dual["out_dir"]) / "router_result.json")
+        rs = load_json(Path(single["out_dir"]) / "router_result.json")
+        self.assertEqual(rd["engines"], ["knowledge_pack", "behavior_skill"])
+        self.assertEqual(rs["engines"], ["behavior_skill"])
+        self.assertEqual(rs["override_source"], "cli")
+
+    def test_shared_ir_is_run_independent(self):
+        """不同 run_id 不得污染共享 IR，也不得让 provenance 追溯串味。
+
+        注意 state.json 的阶段记录是 per-run 的：新 run_id 会重走各 stage，
+        这属于设计行为。本测试验证的是共享 IR 内容稳定 + manifest 按 run 隔离，
+        以及同一 run_id 重跑时 S1 能幂等跳过。
+        """
+        from bookleme.pipeline import Pipeline
+        cfg = load_run_config()
+        pipe = Pipeline(cfg, load_router_config())
+        a = pipe.run([str(SYNTHETIC)], run_id="unittest-shared-a", title="人生设计练习册（合成）")
+        sources_a = (Path(a["cache_dir"]) / "sources.json").read_text(encoding="utf-8")
+        b = pipe.run([str(SYNTHETIC)], run_id="unittest-shared-b", title="人生设计练习册（合成）")
+        sources_b = (Path(b["cache_dir"]) / "sources.json").read_text(encoding="utf-8")
+
+        self.assertTrue(a["validation_all_passed"])
+        self.assertTrue(b["validation_all_passed"])
+        self.assertEqual(sources_a, sources_b, "共享 IR 被 run 专属字段/当前时间污染")
+        self.assertTrue(load_json(Path(a["cache_dir"]) / "sources.json")["run_id"].startswith("shared-"))
+        ma = load_json(Path(a["out_dir"]) / "provenance_manifest.json")
+        mb = load_json(Path(b["out_dir"]) / "provenance_manifest.json")
+        self.assertEqual(ma["run_id"], "unittest-shared-a")
+        self.assertEqual(mb["run_id"], "unittest-shared-b")
+
+        c = pipe.run([str(SYNTHETIC)], run_id="unittest-shared-b", title="人生设计练习册（合成）")
+        self.assertIn("S1 SKIP", Path(c["log"]).read_text(encoding="utf-8"),
+                      "同一 run_id 重跑时 S1 应因 input_sha256 未变而跳过")
+
+    def test_pipeline_produces_two_valid_artifacts(self):
+        from bookleme.pipeline import Pipeline
+        cfg = load_run_config()
+        pipe = Pipeline(cfg, load_router_config())
+        summary = pipe.run([str(SYNTHETIC)], run_id="unittest-run",
+                           title="人生设计练习册（合成）")
+        self.assertTrue(summary["validation_all_passed"])
+        self.assertEqual(len(summary["artifacts"]), 2)
+        metrics = load_json(Path(summary["metrics_path"]))
+        self.assertEqual(metrics["fidelity"]["negative_refusal_rate"]["value"], 1.0)
+        self.assertEqual(metrics["llm_calls"] if "llm_calls" in metrics else 0, 0)
+        for s in metrics["smoke"]:
+            self.assertTrue(all(c["passed"] for c in s["cases"].values()))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

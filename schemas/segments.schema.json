@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme segments.json",
+  "type": "object",
+  "required": ["schema_version", "book_sha256", "method", "segments"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "book_sha256": { "type": "string" },
+    "method": { "type": "string", "enum": ["toc", "headings", "window_fallback", "mixed"] },
+    "low_confidence": { "type": "boolean" },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "heading", "char_range", "confidence", "method"],
+        "properties": {
+          "segment_id": { "type": "string" },
+          "heading": { "type": "string" },
+          "level": { "type": "integer" },
+          "char_range": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+          "token_est": { "type": "integer" },
+          "confidence": { "type": "number" },
+          "method": { "type": "string" },
+          "parent_id": { "type": "string" },
+          "figure_text_lost": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme provenance_manifest.json",
+  "type": "object",
+  "required": ["manifest_version", "run_id", "book", "sources", "derivative", "distribution", "attribution", "engine", "generated_at"],
+  "properties": {
+    "manifest_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "book": {
+      "type": "object",
+      "required": ["title", "sha256", "user_rights"],
+      "properties": {
+        "title": { "type": "string" },
+        "author": { "type": "string" },
+        "isbn": { "type": "string" },
+        "language": { "type": "string" },
+        "sha256": { "type": "string" },
+        "file_count": { "type": "integer" },
+        "user_rights": { "type": "string", "enum": ["owned", "licensed", "public_domain", "unknown"] }
+      }
+    },
+    "sources": { "type": "array", "items": { "type": "object" } },
+    "derivative": {
+      "type": "object",
+      "required": ["contains_original_text", "max_quote_chars", "shingle_overlap_ceiling", "total_quote_ratio_ceiling"],
+      "properties": {
+        "contains_original_text": { "type": "boolean" },
+        "max_quote_chars": { "type": "integer" },
+        "shingle_overlap_ceiling": { "type": "number" },
+        "total_quote_ratio_ceiling": { "type": "number" }
+      }
+    },
+    "distribution": {
+      "type": "object",
+      "required": ["default", "decision"],
+      "properties": {
+        "default": { "type": "string", "enum": ["private"] },
+        "decision": { "type": "string", "enum": ["private", "publishable", "blocked"] },
+        "reason": { "type": "string" },
+        "confirmed_by": { "type": "string" }
+      }
+    },
+    "attribution": { "type": "object" },
+    "engine": { "type": "object" },
+    "generated_at": { "type": "string" }
+  }
+}

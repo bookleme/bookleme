@@ -1,0 +1,115 @@
+"""教练 / 自我对话型体裁插件（对标《人生设计课》形态）。
+
+价值在「提问顺序」：书里最值钱的不是结论，而是那串把用户自己的答案
+追问出来的顺序。结论归属权必须留给用户。
+"""
+
+from string import Template
+
+from bookleme.plugins.base import GenrePlugin
+
+PLUGIN = GenrePlugin(
+    genre_id="coach_dialogue",
+    display_name_zh="自我对话教练",
+    version="0.1.0",
+    router_rules={"source": "configs/router.json", "note": "权重外置，插件不硬编码"},
+    capability_schema={"required": ["title", "R_quote", "A2_user_trigger", "A3_steps", "B_not_applicable"]},
+    section_template=Template("""## 何时读本文件
+
+当用户说出「$trigger」、或对话进入某个提问阶段时，读取本文件对应的框架卡。
+
+## 框架：$title
+
+原文出处（≤150 字，可逐字追溯）：$quote
+
+重写为可执行规则：$rephrase
+
+书中用例：$author_case
+
+1-2-3 执行步骤：
+$steps
+
+不适用边界：$not_applicable
+""").template,
+    skill_template=Template("""$artifact 的必备板块：
+$sections
+
+字数区间：$min_tokens - $max_tokens 字。
+结论归属：$verdict_ownership（用户自己说出结论，教练不代劳）。
+""").template,
+    hard_constraints=[
+        "每轮只问一个问题：你问 → 用户答 → 简短而走心地反馈 → 再问下一题；禁止一次性抛出全部问题。",
+        "全程主问题控制在 6-9 个之间；阶段间可依回答调整顺序，但追问要有度，追问结束必须回到主线。",
+        "主动区分「重力问题」与「可设计的真问题」，只对后者投入设计资源。",
+        "不评判用户的任何选择，不替用户做决定；结论必须由用户自己说出。",
+        "情绪护栏：察觉用户处在低谷或情绪脆弱时，跳过反向推演，先陪他找回能回血的东西，做完立刻转回正面。",
+        "支持可中断续聊：恢复时先读取 state.json 的 current_state / asked_questions，再接着问。",
+    ],
+    state_machine={
+        "initial": "opening",
+        "states": ["opening", "ask_q", "await_answer", "brief_reflect", "next_q", "blueprint", "close"],
+        "transitions": [
+            {"from": "opening", "to": "ask_q", "on": "start"},
+            {"from": "ask_q", "to": "await_answer", "on": "question_asked"},
+            {"from": "await_answer", "to": "brief_reflect", "on": "user_answer"},
+            {"from": "brief_reflect", "to": "next_q", "on": "reflection_done"},
+            {"from": "next_q", "to": "ask_q", "on": "continue"},
+            {"from": "ask_q", "to": "blueprint", "on": "all_questions_done"},
+            {"from": "blueprint", "to": "close", "on": "blueprint_delivered"},
+        ],
+        "terminal": ["close"],
+        "guards": ["low_mood → skip_reverse", "resume → restore_from_state"],
+    },
+    output_contract={
+        "artifact": "个人人生设计蓝图",
+        "file_name": "blueprint.md",
+        "sections": ["你在这里", "真问题（思维误区 → 重新定义）", "你的指南针", "你的能量地图",
+                     "三个奥德赛计划", "原型行动清单", "失败免疫"],
+        "required_fields": ["当前状态打分", "重新定义后的真问题", "三个平等 A 计划", "证伪/放弃条件", "最小原型"],
+        "min_tokens": 8000,
+        "max_tokens": 12000,
+        "format": "markdown",
+    },
+    anti_patterns=[
+        "一次性抛出全部问题，把对话变成问卷。",
+        "说教、打鸡血、推销「正确的人生观」。",
+        "替用户下结论或替他做决定。",
+        "用户情绪低落时仍强行做反向推演。",
+        "把书本摘要当蓝图输出，没有回引用户自己说过的话。",
+    ],
+    eval_prompts=[
+        {"id": "coach-positive", "type": "positive", "prompt": "我最近很迷茫，不知道要不要换方向",
+         "expected_behavior": "只问一个问题，先确认当前状态与真问题"},
+        {"id": "coach-negative", "type": "negative",
+         "prompt": "请根据这本书预测我明年能不能升职",
+         "expected_behavior": "明确回答「书里没讲」，不编造出处，不预测未来"},
+        {"id": "coach-boundary", "type": "boundary", "prompt": "帮我做完整的职业测评",
+         "expected_behavior": "声明不做职业测评，只做设计式对话，并给出能力边界"},
+        {"id": "coach-trigger", "type": "trigger_hit", "prompt": "我想重新定义问题",
+         "expected_behavior": "命中 trigger_words"},
+    ],
+    trigger_words=["人生设计", "自我对话", "迷茫", "重新定义问题"],
+    routing_rules={
+        "intent_map": {
+            "开场与状态": "references/framework-01.md",
+            "指南针": "references/framework-02.md",
+            "寻路与能量": "references/framework-03.md",
+            "奥德赛计划": "references/framework-04.md",
+        },
+        "unknown_intent_policy": "ask",
+        "insufficient_data_policy": "ask",
+    },
+    voice_calibration={
+        "tone": "温暖而犀利，简洁，不评判",
+        "address_form": "第二人称「你」",
+        "forbidden_phrases": ["我建议你应该", "你其实想要", "替你决定", "正确答案"],
+        "verdict_ownership": "user",
+    },
+    copyright_profile={"quote_char_limit": 150, "require_citation": True, "allow_original_text": False},
+    default_engines=["behavior_skill"],
+    engine_kind="behavior",
+    extra_sections={
+        "state_guide": "运行期状态写入 out/sessions/<slug>/<session_id>/state.json；技能包内只放 state/schema.json 与 scripts/state_io.py，保持只读。",
+        "data_dependency": "本 Skill 不绑定任何专有数据库；缺少用户陈述时先追问，不用假设填充。",
+    },
+)

@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0",
+  "note": "Semantically equivalent to the approved plan's router.yaml. JSON is used for zero-dependency operation; every cap, weight, prior and gate remains external and diffable.",
+  "features": {
+    "second_person_ratio": { "cap": 0.120 },
+    "question_density": { "cap": 0.200 },
+    "dialogue_marker_ratio": { "cap": 0.080 },
+    "imperative_ratio": { "cap": 0.150 },
+    "procedure_density": { "cap": 0.030 },
+    "checklist_marker_ratio": { "cap": 0.020 },
+    "numeric_threshold_density": { "cap": 0.015 },
+    "evidence_marker_density": { "cap": 0.012 },
+    "citation_density": { "cap": 0.010 },
+    "named_framework_count": { "cap": 12.0 },
+    "heading_depth": { "cap": 4.0 },
+    "toc_imperative_headings": { "cap": 0.500 }
+  },
+  "weights": {
+    "coach_dialogue": {
+      "second_person_ratio": 0.22, "question_density": 0.20, "dialogue_marker_ratio": 0.14,
+      "imperative_ratio": 0.12, "procedure_density": 0.06, "checklist_marker_ratio": 0.02,
+      "numeric_threshold_density": 0.02, "evidence_marker_density": 0.02, "citation_density": 0.00,
+      "named_framework_count": 0.02, "heading_depth": 0.00, "toc_imperative_headings": 0.08
+    },
+    "professional_analysis": {
+      "second_person_ratio": 0.02, "question_density": 0.02, "dialogue_marker_ratio": 0.00,
+      "imperative_ratio": 0.06, "procedure_density": 0.10, "checklist_marker_ratio": 0.06,
+      "numeric_threshold_density": 0.22, "evidence_marker_density": 0.20, "citation_density": 0.08,
+      "named_framework_count": 0.10, "heading_depth": 0.04, "toc_imperative_headings": 0.02
+    },
+    "decision_checklist": {
+      "second_person_ratio": 0.05, "question_density": 0.03, "dialogue_marker_ratio": 0.00,
+      "imperative_ratio": 0.14, "procedure_density": 0.22, "checklist_marker_ratio": 0.20,
+      "numeric_threshold_density": 0.10, "evidence_marker_density": 0.04, "citation_density": 0.00,
+      "named_framework_count": 0.08, "heading_depth": 0.06, "toc_imperative_headings": 0.08
+    },
+    "knowledge_reference": {
+      "second_person_ratio": 0.02, "question_density": 0.02, "dialogue_marker_ratio": 0.00,
+      "imperative_ratio": 0.03, "procedure_density": 0.06, "checklist_marker_ratio": 0.04,
+      "numeric_threshold_density": 0.06, "evidence_marker_density": 0.06, "citation_density": 0.12,
+      "named_framework_count": 0.22, "heading_depth": 0.14, "toc_imperative_headings": 0.03
+    }
+  },
+  "prior": {
+    "coach_dialogue": 0.10,
+    "professional_analysis": 0.08,
+    "decision_checklist": 0.00,
+    "knowledge_reference": 0.20
+  },
+  "hard_gates": [
+    {
+      "id": "G1",
+      "when": { "question_density": { "min": 0.18 }, "second_person_ratio": { "min": 0.012 } },
+      "target": "coach_dialogue",
+      "bonus": 0.25
+    },
+    {
+      "id": "G2",
+      "when": { "numeric_threshold_density": { "min": 0.010 }, "evidence_marker_density": { "min": 0.008 } },
+      "target": "professional_analysis",
+      "bonus": 0.25
+    },
+    {
+      "id": "G3",
+      "when": { "procedure_density": { "min": 0.020 }, "checklist_marker_ratio": { "min": 0.010 } },
+      "target": "decision_checklist",
+      "bonus": 0.25
+    }
+  ],
+  "default_engines": {
+    "coach_dialogue": ["behavior_skill"],
+    "professional_analysis": ["behavior_skill", "knowledge_pack"],
+    "decision_checklist": ["behavior_skill", "knowledge_pack"],
+    "knowledge_reference": ["knowledge_pack"]
+  },
+  "margin_threshold": 0.15,
+  "ambiguity_sample_size": 8,
+  "ambiguity_vote_bonus": 0.10,
+  "fallback": {
+    "engines": ["knowledge_pack", "behavior_skill"],
+    "reason": "ambiguous_dual_output"
+  }
+}

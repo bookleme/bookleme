@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Regression tests (stdlib unittest, zero deps)
+        run: python -m unittest discover -s tests -v
+
+      - name: Schemas + state
+        run: python -m bookleme schema --state
+
+      - name: Plugin validation
+        run: |
+          python -m bookleme plugin validate bookleme/plugins/builtin/coach_dialogue.py
+          python -m bookleme plugin validate bookleme/plugins/builtin/knowledge_reference.py
+
+      - name: End-to-end compile on synthetic book
+        env:
+          RUN_ID: ci-${{ matrix.python-version }}
+        run: |
+          python -m bookleme run \
+            --input evals/cases/synthetic/coach_book.md \
+            --title "人生设计练习册（合成）" \
+            --run-id "$RUN_ID"
+
+      - name: Assert all hard gates passed
+        env:
+          RUN_ID: ci-${{ matrix.python-version }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          rid = os.environ["RUN_ID"]
+          report = json.loads((Path("out") / rid / "validation_report.json").read_text())
+          assert report["all_passed"], report
+          for art in report["artifacts"]:
+              assert not art["quick_validate_errors"], art
+              assert not art["lint_errors"], art
+              assert art["copyright_gate"]["passed"], art
+          metrics = json.loads((Path("out") / rid / "metrics.json").read_text())
+          assert metrics["fidelity"]["negative_refusal_rate"]["value"] == 1.0
+          print("all hard gates passed")
+          PY
+
+      - name: Copyright scan over tracked files
+        run: |
+          ! git ls-files | grep -E 'full_text\.txt$|\.pdf$|\.epub$|evals/cases/user_books/.+\.md$'

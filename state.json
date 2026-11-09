@@ -1,0 +1,1447 @@
+{
+  "schema_version": "1.0",
+  "latest_run_id": "rename-check",
+  "runs": {
+    "unittest-run": {
+      "created_at": "2026-11-08T12:54:46+00:00",
+      "book_sha256": "af16355aad35396a81498d5fc80468b6b21a1c08a4f1346a201a997887806977",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "0beb58f10cdd290b72d98724fd6db91445ce8ea8065d48bcf4a8d2651f60754a",
+          "output_sha256": "2188284b632c6fd7775b5b3de56440c2770979a126ac4032c737aa11086b3029",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/sources.json",
+            "/Users/bertram/Desktop/BookLeme/out/unittest-run/provenance_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:41+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "e1c577cd7a5fa7764d5357b4e96cd3da000a9f77e0165f6734854101c02a5ae3",
+          "output_sha256": "8cb5fc1f8744db76da188bc8a6c7469784eb8fe4accd746d7346f112280c6717",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/full_text.txt",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/char_map.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/toc.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/extraction_report.json"
+          ],
+          "ts": "2026-11-09T03:26:41+00:00",
+          "attempts": 5,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "ad29c679d568503407936bc3b5d7fffabc893f6939dbae77eb1bf3fa37994dee",
+          "output_sha256": "5e11461a80be4c4c96527a277524cce6f27071026dd46d9725027cc1b9351939",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/segments.json"
+          ],
+          "ts": "2026-11-09T03:26:41+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "968d2906b2b054f1d0496d2ee8dd2946c44f2fad8d7957845c5c33eb628df760",
+          "output_sha256": "826b8f94b4862cc28e19be0ff46a1af2be8b82c15a4a0c48c24f9f2119f8d740",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-run/router_result.json"
+          ],
+          "ts": "2026-11-09T03:26:41+00:00",
+          "attempts": 4,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "cf436404939b402911f0a038cf29eb1a382ded6a93edb0bf2878007fadd9a5ce",
+          "output_sha256": "6db56f770907df7f87c0b48362584773590515ad8f65d25eee9256f7307e441a",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities.json"
+          ],
+          "ts": "2026-11-09T03:26:41+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "6420ea94c51a4ceee3a3667a9a484ac76dceb1936314fac7fa6e552087e2a000",
+          "output_sha256": "188d4704d073b4a3477043e82e5d8b4cc4c49aca81b139a6857b20e3f4f29d2e",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities_verified.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/claim_ledger.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/fidelity_report.json"
+          ],
+          "ts": "2026-11-09T03:26:41+00:00",
+          "attempts": 5,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "f232cbafdec3e05bc176c5112f4d0874afbe2169ed7158af56052aa54103dbc3",
+          "output_sha256": "38c7cb2af57f672d4a2a21045f18ea7b5e2b76f0ef5acafad99100a1d358acdd",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-run/build_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:42+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "95e08909d59f687c8283d4890af64c10627d91b472b1f413c3ababda0ed652e2",
+          "output_sha256": "2095d50479b1feb0fab98da8ced3e9e1eea10bf4dd76d7b9a11e67364393f76b",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-run/validation_report.json"
+          ],
+          "ts": "2026-11-09T03:26:42+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-09T03:26:42+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "6777afbc834a224ccf49b32a586b53d3da96598ef78eac5a0173b359a64eecef",
+          "output_sha256": "54b8429cc5b7d9b92221a799ee2a35480686c7b752ec16a394c93d3a5b78ec9c",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-run/metrics.json"
+          ],
+          "ts": "2026-11-09T03:26:42+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "smoke-001": {
+      "created_at": "2026-11-08T12:54:48+00:00",
+      "book_sha256": "a4add8d6233c35255172333e90c7a2295f3aedcb3d3c64d8532faaf0ebf9b6bc",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "bae59efe1a826c6acb5222459c94eed946c5e772683a333e190699d161de372f",
+          "output_sha256": "a0d0a6ea0fd0efb27f37a5fb6267442bddea140cea92fb3765ec5ab4f662565a",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/sources.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-001/provenance_manifest.json"
+          ],
+          "ts": "2026-11-08T13:06:19+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "d8fdb3199f93b66250bc10f3b6c4d99d8c3bb2b6d90d1a4715dcc98655a3b090",
+          "output_sha256": "2dccb6f919de0cc616167162de13040433a6779386d8caa2ae0dcf601f3cdfc9",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/full_text.txt",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/char_map.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/toc.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/extraction_report.json"
+          ],
+          "ts": "2026-11-08T13:06:19+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "9b32063a2814a5650a92e2b3309b28c44dda67bf54604c92545ebc9b5130583b",
+          "output_sha256": "08889b3a829c14405cf7a2c4e0772b71783466c69c82f45f031e495eeefb70b1",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/segments.json"
+          ],
+          "ts": "2026-11-08T12:54:48+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "315e9805080104c314c4efcadcb4d031277f4a01fce263b20ce6a36b0ef12a2c",
+          "output_sha256": "421fac35d2ed3ad9ce29b187c5a8e183ef6620d01bfa38b20d38264d5918e1df",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-001/router_result.json"
+          ],
+          "ts": "2026-11-08T13:08:56+00:00",
+          "attempts": 2,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "a158a7a43b2c213e43e42a76eab904a193308c3fc6a3da9317cdcadb586fffee",
+          "output_sha256": "00e9dc4796ffcff9d8a4261a136389120eff0052d95397693747a52f4925740b",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/capabilities.json"
+          ],
+          "ts": "2026-11-08T13:08:56+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "0a9c06d8d196fd2128efe181e34ac615c89365e49f8fe97a002422ba5be7eacf",
+          "output_sha256": "a17e80d3cc2efa7e879e4ae5be0c1e18796930bd476d5ea4fe3fc27bf641eeb2",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/capabilities_verified.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/claim_ledger.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/fidelity_report.json"
+          ],
+          "ts": "2026-11-08T13:08:56+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "445d03017c54956fd98b73879ca4aaa619a105d0fee12a8615ae51601066c322",
+          "output_sha256": "80132171d218c85866037e25871f4369baba9e93a46dfe40c1375f900fe645a5",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-001/build_manifest.json"
+          ],
+          "ts": "2026-11-08T13:08:56+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "9963d35a6e4137e70260b3aaada582ae8a4560e7b9eac3c65ecbf3fb13754f85",
+          "output_sha256": "73e2ff20af5dace07211a4509c777b26341288f99ee11573c82b07e9438bc224",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-001/validation_report.json"
+          ],
+          "ts": "2026-11-08T12:54:49+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-08T13:08:56+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "c9abd2cc66091bed32479eb9796fbafcdc44a04db1c267ceef3ad88fd129b436",
+          "output_sha256": "38c764473bde8358c3d4adc79e487ace3d43d770197e4dd3bc4a3364ea73d0a7",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-001/metrics.json"
+          ],
+          "ts": "2026-11-08T13:02:50+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "smoke-002": {
+      "created_at": "2026-11-08T12:54:49+00:00",
+      "book_sha256": "a4add8d6233c35255172333e90c7a2295f3aedcb3d3c64d8532faaf0ebf9b6bc",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "bae59efe1a826c6acb5222459c94eed946c5e772683a333e190699d161de372f",
+          "output_sha256": "a0d0a6ea0fd0efb27f37a5fb6267442bddea140cea92fb3765ec5ab4f662565a",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/sources.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-002/provenance_manifest.json"
+          ],
+          "ts": "2026-11-08T13:06:20+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "d8fdb3199f93b66250bc10f3b6c4d99d8c3bb2b6d90d1a4715dcc98655a3b090",
+          "output_sha256": "2dccb6f919de0cc616167162de13040433a6779386d8caa2ae0dcf601f3cdfc9",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/full_text.txt",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/char_map.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/toc.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/extraction_report.json"
+          ],
+          "ts": "2026-11-08T13:06:20+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "9b32063a2814a5650a92e2b3309b28c44dda67bf54604c92545ebc9b5130583b",
+          "output_sha256": "08889b3a829c14405cf7a2c4e0772b71783466c69c82f45f031e495eeefb70b1",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/segments.json"
+          ],
+          "ts": "2026-11-08T12:54:49+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "315e9805080104c314c4efcadcb4d031277f4a01fce263b20ce6a36b0ef12a2c",
+          "output_sha256": "421fac35d2ed3ad9ce29b187c5a8e183ef6620d01bfa38b20d38264d5918e1df",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-002/router_result.json"
+          ],
+          "ts": "2026-11-08T13:08:58+00:00",
+          "attempts": 2,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "a158a7a43b2c213e43e42a76eab904a193308c3fc6a3da9317cdcadb586fffee",
+          "output_sha256": "00e9dc4796ffcff9d8a4261a136389120eff0052d95397693747a52f4925740b",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/capabilities.json"
+          ],
+          "ts": "2026-11-08T13:08:58+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "0a9c06d8d196fd2128efe181e34ac615c89365e49f8fe97a002422ba5be7eacf",
+          "output_sha256": "a17e80d3cc2efa7e879e4ae5be0c1e18796930bd476d5ea4fe3fc27bf641eeb2",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/capabilities_verified.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/claim_ledger.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/fidelity_report.json"
+          ],
+          "ts": "2026-11-08T13:08:59+00:00",
+          "attempts": 6,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "ec970f9d64e1918b918778b7e664024aec136722c8f8400a32cc7fa4d1e644c4",
+          "output_sha256": "d2a094e0ce7471344746e3d58f93302b8c7144250d7cc75afe5bd9c5c26ad2e4",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-002/build_manifest.json"
+          ],
+          "ts": "2026-11-08T13:08:59+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "7063d357dd7ec55e9addb903a5a1cb710d96dec15691af624f709fcefa7f75b8",
+          "output_sha256": "368b779b71ffdd11a591563725ddd2c2ef605e9417f401e7f28eca190181b7e8",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-002/validation_report.json"
+          ],
+          "ts": "2026-11-08T12:54:50+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-08T13:08:59+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "1caa9c429c3cd4474f915b418b7332b09cf24cdd3e2a8f08b65d75059d5c8b38",
+          "output_sha256": "90b1746e03d1a93e0d18a089844764bfbf00508aa59387a702dfc23265ac1b4c",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/smoke-002/metrics.json"
+          ],
+          "ts": "2026-11-08T13:06:20+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "single-001": {
+      "created_at": "2026-11-08T12:54:51+00:00",
+      "book_sha256": "a4add8d6233c35255172333e90c7a2295f3aedcb3d3c64d8532faaf0ebf9b6bc",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "e15aa7c30c6b9c1e28e01f2477e35be75f1900ce78444a05969f97323c02b21a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "bae59efe1a826c6acb5222459c94eed946c5e772683a333e190699d161de372f",
+          "output_sha256": "a0d0a6ea0fd0efb27f37a5fb6267442bddea140cea92fb3765ec5ab4f662565a",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/sources.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/single-001/provenance_manifest.json"
+          ],
+          "ts": "2026-11-08T13:06:21+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "d8fdb3199f93b66250bc10f3b6c4d99d8c3bb2b6d90d1a4715dcc98655a3b090",
+          "output_sha256": "2dccb6f919de0cc616167162de13040433a6779386d8caa2ae0dcf601f3cdfc9",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/full_text.txt",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/char_map.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/toc.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/extraction_report.json"
+          ],
+          "ts": "2026-11-08T13:06:22+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "9b32063a2814a5650a92e2b3309b28c44dda67bf54604c92545ebc9b5130583b",
+          "output_sha256": "08889b3a829c14405cf7a2c4e0772b71783466c69c82f45f031e495eeefb70b1",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/segments.json"
+          ],
+          "ts": "2026-11-08T12:54:51+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "aa48ca9007ba7ad46c7b066c1f767088f277ba429a5f5ed2bedefa96b5ae4cf2",
+          "output_sha256": "703d23b3f371867580728db28741a6fc15a513f583316cc38f118c8cda48ef99",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/single-001/router_result.json"
+          ],
+          "ts": "2026-11-08T13:08:57+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "a158a7a43b2c213e43e42a76eab904a193308c3fc6a3da9317cdcadb586fffee",
+          "output_sha256": "00e9dc4796ffcff9d8a4261a136389120eff0052d95397693747a52f4925740b",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/capabilities.json"
+          ],
+          "ts": "2026-11-08T13:08:57+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "0a9c06d8d196fd2128efe181e34ac615c89365e49f8fe97a002422ba5be7eacf",
+          "output_sha256": "a17e80d3cc2efa7e879e4ae5be0c1e18796930bd476d5ea4fe3fc27bf641eeb2",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/capabilities_verified.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/claim_ledger.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/fidelity_report.json"
+          ],
+          "ts": "2026-11-08T13:08:57+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "fbee573b62e7fc0185276cd61608c20c5df77474769ed92d2c1165ca771932eb",
+          "output_sha256": "dfbc6df40f59d5eb5daa38f6abb5b9423dffd6473a3d5dfed0af53c2bb56ba1b",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/single-001/build_manifest.json"
+          ],
+          "ts": "2026-11-08T13:08:57+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "549934f9684ac93decbfa60b9102b72e31ccbf0b41a1aa288573bd8f96b4d006",
+          "output_sha256": "17db83ff06c3e886ecb262bb8c49856dc84cae37be7ae5e9a49878c91ad1af9e",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/single-001/validation_report.json"
+          ],
+          "ts": "2026-11-08T13:08:57+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-08T13:08:57+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "54bf19fb4861515ac203b8847fcd35219dbeaf0d8ef49b55d1319b158dea6c30",
+          "output_sha256": "c5629cec7c71359443a481d5e80a91a805ccf1814159f9d22c3d799168ccfb7c",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/single-001/metrics.json"
+          ],
+          "ts": "2026-11-08T13:08:58+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "gate-test": {
+      "created_at": "2026-11-08T12:54:53+00:00",
+      "book_sha256": "a4add8d6233c35255172333e90c7a2295f3aedcb3d3c64d8532faaf0ebf9b6bc",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "da426062271d442178f464da384e1cc1528f584c3ea2f3f03e23e38fece9fdda",
+          "output_sha256": "a0d0a6ea0fd0efb27f37a5fb6267442bddea140cea92fb3765ec5ab4f662565a",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/sources.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/gate-test/provenance_manifest.json"
+          ],
+          "ts": "2026-11-08T13:06:23+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "d8fdb3199f93b66250bc10f3b6c4d99d8c3bb2b6d90d1a4715dcc98655a3b090",
+          "output_sha256": "2dccb6f919de0cc616167162de13040433a6779386d8caa2ae0dcf601f3cdfc9",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/full_text.txt",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/char_map.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/toc.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/extraction_report.json"
+          ],
+          "ts": "2026-11-08T13:06:24+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "9b32063a2814a5650a92e2b3309b28c44dda67bf54604c92545ebc9b5130583b",
+          "output_sha256": "08889b3a829c14405cf7a2c4e0772b71783466c69c82f45f031e495eeefb70b1",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/segments.json"
+          ],
+          "ts": "2026-11-08T12:54:53+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "315e9805080104c314c4efcadcb4d031277f4a01fce263b20ce6a36b0ef12a2c",
+          "output_sha256": "421fac35d2ed3ad9ce29b187c5a8e183ef6620d01bfa38b20d38264d5918e1df",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/router_result.json"
+          ],
+          "ts": "2026-11-08T12:54:53+00:00",
+          "attempts": 1,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "f483f4e21517699139fec4e5f8128f542d24141dd9faa8324c4e584308a29f0c",
+          "output_sha256": "5fc0589e10d58d8ac6d8d9c60b83dfd1e24d312036f29e7afd185186d94d7962",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/capabilities.json"
+          ],
+          "ts": "2026-11-08T12:54:53+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "b4184dc52f34a995f9b74d15db4241af602f09c7e48f05840df53c77be09d82a",
+          "output_sha256": "fd54e96cf01a0547fb9e3fa3a6dab9ec381efc9900e183606a29c5767cdae18d",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/capabilities_verified.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/claim_ledger.json",
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/cache/a4add8d6233c/fidelity_report.json"
+          ],
+          "ts": "2026-11-08T13:06:24+00:00",
+          "attempts": 2,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "4f88ce476ed86b74365082eef4465270f9b9c26f2445b9412c5b791b9c17138a",
+          "output_sha256": "e2285bfa3d5322032fd151ba1f29cc0fe128d108c5c639c9d31eef986596e786",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/gate-test/build_manifest.json"
+          ],
+          "ts": "2026-11-08T12:54:54+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "a4698fc81f28869470c669e40ee3b0d1fbd74954bd33ba9975ed2eaaba3d8b29",
+          "output_sha256": "10699b057ebb03fd23f4b2a0f80033e40faca05dbea21f996a6a22e7eaf36ffa",
+          "outputs": [
+            "/Users/bertram/WorkBuddy/GitHub作品/bookforge/out/gate-test/validation_report.json"
+          ],
+          "ts": "2026-11-08T12:54:54+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "unittest-shared-a": {
+      "created_at": "2026-11-08T13:04:57+00:00",
+      "book_sha256": "af16355aad35396a81498d5fc80468b6b21a1c08a4f1346a201a997887806977",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "0beb58f10cdd290b72d98724fd6db91445ce8ea8065d48bcf4a8d2651f60754a",
+          "output_sha256": "2188284b632c6fd7775b5b3de56440c2770979a126ac4032c737aa11086b3029",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/sources.json",
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-a/provenance_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "e1c577cd7a5fa7764d5357b4e96cd3da000a9f77e0165f6734854101c02a5ae3",
+          "output_sha256": "8cb5fc1f8744db76da188bc8a6c7469784eb8fe4accd746d7346f112280c6717",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/full_text.txt",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/char_map.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/toc.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/extraction_report.json"
+          ],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "ad29c679d568503407936bc3b5d7fffabc893f6939dbae77eb1bf3fa37994dee",
+          "output_sha256": "5e11461a80be4c4c96527a277524cce6f27071026dd46d9725027cc1b9351939",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/segments.json"
+          ],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "968d2906b2b054f1d0496d2ee8dd2946c44f2fad8d7957845c5c33eb628df760",
+          "output_sha256": "826b8f94b4862cc28e19be0ff46a1af2be8b82c15a4a0c48c24f9f2119f8d740",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-a/router_result.json"
+          ],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 4,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "cf436404939b402911f0a038cf29eb1a382ded6a93edb0bf2878007fadd9a5ce",
+          "output_sha256": "6db56f770907df7f87c0b48362584773590515ad8f65d25eee9256f7307e441a",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities.json"
+          ],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "6420ea94c51a4ceee3a3667a9a484ac76dceb1936314fac7fa6e552087e2a000",
+          "output_sha256": "188d4704d073b4a3477043e82e5d8b4cc4c49aca81b139a6857b20e3f4f29d2e",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities_verified.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/claim_ledger.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/fidelity_report.json"
+          ],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "f10cd53b9169537de8f3b8fef82c77d584afcddcef10054a143f767fe1097bce",
+          "output_sha256": "110d7f5c0853b00eceff947b458666abfa3274cbe7e7d83e0f4ffec3353c39b8",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-a/build_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:47+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "fd24c55c76611f1a347335273e2aab3b5c9dafc0139e54b546fa0a58bc5be936",
+          "output_sha256": "6ad047f0d82ab378ec6976395f2c69dc342d579a354f56f6ba9e2387ab4e6de1",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-a/validation_report.json"
+          ],
+          "ts": "2026-11-09T03:26:47+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-09T03:26:47+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "04eba48a6c446290a902ccaf9c50a5260bcd55781d3498358418c8916dd5e1f8",
+          "output_sha256": "fc248a8f7fa9f304a7f88245a5f627664a04b5bac859dc0ec69e486a361af0fe",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-a/metrics.json"
+          ],
+          "ts": "2026-11-09T03:26:48+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "unittest-shared-b": {
+      "created_at": "2026-11-08T13:04:59+00:00",
+      "book_sha256": "af16355aad35396a81498d5fc80468b6b21a1c08a4f1346a201a997887806977",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "0beb58f10cdd290b72d98724fd6db91445ce8ea8065d48bcf4a8d2651f60754a",
+          "output_sha256": "2188284b632c6fd7775b5b3de56440c2770979a126ac4032c737aa11086b3029",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/sources.json",
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-b/provenance_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:48+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "e1c577cd7a5fa7764d5357b4e96cd3da000a9f77e0165f6734854101c02a5ae3",
+          "output_sha256": "8cb5fc1f8744db76da188bc8a6c7469784eb8fe4accd746d7346f112280c6717",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/full_text.txt",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/char_map.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/toc.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/extraction_report.json"
+          ],
+          "ts": "2026-11-09T03:26:48+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "ad29c679d568503407936bc3b5d7fffabc893f6939dbae77eb1bf3fa37994dee",
+          "output_sha256": "5e11461a80be4c4c96527a277524cce6f27071026dd46d9725027cc1b9351939",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/segments.json"
+          ],
+          "ts": "2026-11-09T03:26:48+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "968d2906b2b054f1d0496d2ee8dd2946c44f2fad8d7957845c5c33eb628df760",
+          "output_sha256": "826b8f94b4862cc28e19be0ff46a1af2be8b82c15a4a0c48c24f9f2119f8d740",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-b/router_result.json"
+          ],
+          "ts": "2026-11-09T03:26:48+00:00",
+          "attempts": 4,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "cf436404939b402911f0a038cf29eb1a382ded6a93edb0bf2878007fadd9a5ce",
+          "output_sha256": "6db56f770907df7f87c0b48362584773590515ad8f65d25eee9256f7307e441a",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities.json"
+          ],
+          "ts": "2026-11-09T03:26:48+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "6420ea94c51a4ceee3a3667a9a484ac76dceb1936314fac7fa6e552087e2a000",
+          "output_sha256": "188d4704d073b4a3477043e82e5d8b4cc4c49aca81b139a6857b20e3f4f29d2e",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities_verified.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/claim_ledger.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/fidelity_report.json"
+          ],
+          "ts": "2026-11-09T03:26:48+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "1e305b3e080726f51a88a09ff1a1cc098f7d9b6b3713f900cc9d1483c5f5fe96",
+          "output_sha256": "5355febafff98a3da6f34a4cd7106e9ce5e8dc3a34d67bccd69b87f184a17bd2",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-b/build_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:49+00:00",
+          "attempts": 4,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "861146dfa909e87147d6abde3065b4a4bdfaf3db297ab62fb4fb3c6f94260fc0",
+          "output_sha256": "4c65965d88bac0415965235a462489346a9d6560ac80d4738581fb03c119a618",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-b/validation_report.json"
+          ],
+          "ts": "2026-11-09T03:26:49+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-09T03:26:50+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "1c15c85d955a90487277336c4e8a664770195a2e8c46ad116c6c89a4d9a622ac",
+          "output_sha256": "8c47c47612692d69f7dac17048550fcbe8299550ce38be5971ad210df5618e7b",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-shared-b/metrics.json"
+          ],
+          "ts": "2026-11-09T03:26:50+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "unittest-router-dual": {
+      "created_at": "2026-11-08T13:08:10+00:00",
+      "book_sha256": "af16355aad35396a81498d5fc80468b6b21a1c08a4f1346a201a997887806977",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "0beb58f10cdd290b72d98724fd6db91445ce8ea8065d48bcf4a8d2651f60754a",
+          "output_sha256": "2188284b632c6fd7775b5b3de56440c2770979a126ac4032c737aa11086b3029",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/sources.json",
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-dual/provenance_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:43+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "e1c577cd7a5fa7764d5357b4e96cd3da000a9f77e0165f6734854101c02a5ae3",
+          "output_sha256": "8cb5fc1f8744db76da188bc8a6c7469784eb8fe4accd746d7346f112280c6717",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/full_text.txt",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/char_map.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/toc.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/extraction_report.json"
+          ],
+          "ts": "2026-11-09T03:26:43+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "ad29c679d568503407936bc3b5d7fffabc893f6939dbae77eb1bf3fa37994dee",
+          "output_sha256": "5e11461a80be4c4c96527a277524cce6f27071026dd46d9725027cc1b9351939",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/segments.json"
+          ],
+          "ts": "2026-11-09T03:26:43+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "968d2906b2b054f1d0496d2ee8dd2946c44f2fad8d7957845c5c33eb628df760",
+          "output_sha256": "826b8f94b4862cc28e19be0ff46a1af2be8b82c15a4a0c48c24f9f2119f8d740",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-dual/router_result.json"
+          ],
+          "ts": "2026-11-09T03:26:43+00:00",
+          "attempts": 3,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "cf436404939b402911f0a038cf29eb1a382ded6a93edb0bf2878007fadd9a5ce",
+          "output_sha256": "6db56f770907df7f87c0b48362584773590515ad8f65d25eee9256f7307e441a",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities.json"
+          ],
+          "ts": "2026-11-09T03:26:43+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "6420ea94c51a4ceee3a3667a9a484ac76dceb1936314fac7fa6e552087e2a000",
+          "output_sha256": "188d4704d073b4a3477043e82e5d8b4cc4c49aca81b139a6857b20e3f4f29d2e",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities_verified.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/claim_ledger.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/fidelity_report.json"
+          ],
+          "ts": "2026-11-09T03:26:43+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "34460653eecd80478e9bba05972ebac38aff555d7e216a2f68beda03da06395d",
+          "output_sha256": "984825ad97a0895bf8c6103dd087d34c987e83159fe117514e7ad286ed03fbeb",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-dual/build_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:44+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "e6419bb9ba9c15ca22c1b8ab0b0d1bdfc82d535f888b8575d6ca9154477179c2",
+          "output_sha256": "7fc39bc2ac273a15e3dbd8156cd141591ebeb80f5b3b6269761ad3e6f3d88145",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-dual/validation_report.json"
+          ],
+          "ts": "2026-11-09T03:26:44+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-09T03:26:44+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "b5b3632ad53412a450756c30730242496101e59dbdf18029725aff27bc760c77",
+          "output_sha256": "ce67706d12e08fbc0f02ea54223da3dd018f0416a3bd14710736d75f331ab2ea",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-dual/metrics.json"
+          ],
+          "ts": "2026-11-09T03:26:44+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "unittest-router-single": {
+      "created_at": "2026-11-08T13:08:12+00:00",
+      "book_sha256": "af16355aad35396a81498d5fc80468b6b21a1c08a4f1346a201a997887806977",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "0beb58f10cdd290b72d98724fd6db91445ce8ea8065d48bcf4a8d2651f60754a",
+          "output_sha256": "2188284b632c6fd7775b5b3de56440c2770979a126ac4032c737aa11086b3029",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/sources.json",
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-single/provenance_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:44+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "e1c577cd7a5fa7764d5357b4e96cd3da000a9f77e0165f6734854101c02a5ae3",
+          "output_sha256": "8cb5fc1f8744db76da188bc8a6c7469784eb8fe4accd746d7346f112280c6717",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/full_text.txt",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/char_map.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/toc.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/extraction_report.json"
+          ],
+          "ts": "2026-11-09T03:26:45+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "ad29c679d568503407936bc3b5d7fffabc893f6939dbae77eb1bf3fa37994dee",
+          "output_sha256": "5e11461a80be4c4c96527a277524cce6f27071026dd46d9725027cc1b9351939",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/segments.json"
+          ],
+          "ts": "2026-11-09T03:26:45+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "09f8179656c4f7ad21f3f6759774f7be7b08dbc77895c7ce9e4597cae418b6ea",
+          "output_sha256": "6e1581be67de5e6d3bc1fb128435439f0ce4e436487346f5b253343761d86565",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-single/router_result.json"
+          ],
+          "ts": "2026-11-09T03:26:45+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "cf436404939b402911f0a038cf29eb1a382ded6a93edb0bf2878007fadd9a5ce",
+          "output_sha256": "6db56f770907df7f87c0b48362584773590515ad8f65d25eee9256f7307e441a",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities.json"
+          ],
+          "ts": "2026-11-09T03:26:45+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "6420ea94c51a4ceee3a3667a9a484ac76dceb1936314fac7fa6e552087e2a000",
+          "output_sha256": "188d4704d073b4a3477043e82e5d8b4cc4c49aca81b139a6857b20e3f4f29d2e",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities_verified.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/claim_ledger.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/fidelity_report.json"
+          ],
+          "ts": "2026-11-09T03:26:45+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "85ecbd43c35773396180cf61c8d1ad347f2942383dc7241b7f55a4c9a31f29a7",
+          "output_sha256": "2f6d1e6fef16374037fff5ae51e1ea386d2918639beacf932422af16a4108ec1",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-single/build_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:45+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "8607376bd7aecd851b69bf625e19ee4a017253cf81c066af46c3cf14e3e47271",
+          "output_sha256": "e59c138d664236313daa8e1d6ee14d57c55d70767af254c4bb9d8c1f78ad2cb1",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-single/validation_report.json"
+          ],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "df688cd852110285cb930277d550013fd9b5f4fa587c3d6b29c59effc7af9b67",
+          "output_sha256": "905a04561da1d1b9a6f62507e62aa5f16de1a4a9aca93788726704cf54e7f759",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/unittest-router-single/metrics.json"
+          ],
+          "ts": "2026-11-09T03:26:46+00:00",
+          "attempts": 3,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "desktop-check": {
+      "created_at": "2026-11-08T13:35:05+00:00",
+      "book_sha256": "a4add8d6233c35255172333e90c7a2295f3aedcb3d3c64d8532faaf0ebf9b6bc",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "a66b0c585ab6fade4986ce7b60ee72907b2104ddc6de1681f8437dbe9d74789b",
+          "output_sha256": "db08263cb93d69e5fd5b55d6a3f95a2898d6daf7684c9fd68cf5a69327d38fa6",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/sources.json",
+            "/Users/bertram/Desktop/BookForge/out/desktop-check/provenance_manifest.json"
+          ],
+          "ts": "2026-11-08T13:35:05+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "aa9458477f3ce8bcf5168f702c65ecff58e7cf52abc03867ff0a9239f6f7a606",
+          "output_sha256": "b6fbe841aac509f406e710903c5e7ad8922075441d2c320ac1c37475340da654",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/full_text.txt",
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/char_map.json",
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/toc.json",
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/extraction_report.json"
+          ],
+          "ts": "2026-11-08T13:35:06+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "5da50375c2da5333b3941093bb7c8edebe4fb4b1a623016ca41e57a6f899c117",
+          "output_sha256": "145df784463e20474d8cd6868779dafa1a247e1aa61ecc0a744b190dfa42cc9a",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/segments.json"
+          ],
+          "ts": "2026-11-08T13:35:06+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "78204d47cce8a8b6a28edbd59de8e3aec5fc596c11a7e1e409fec6e3f118c6e5",
+          "output_sha256": "ed744a388925b4e21cbc81b9a6a1145408939bf49d748ed887f011d181ea3581",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/out/desktop-check/router_result.json"
+          ],
+          "ts": "2026-11-08T13:35:06+00:00",
+          "attempts": 1,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "585d804b4c8954472004d08becd6a1f1cf5346996ebd463aaf3f0b17ffff0708",
+          "output_sha256": "1d8ee6e8332e6b1a15d358e32e346c6e4dd52c45eb6afd867a4cc4e80c402c8e",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/capabilities.json"
+          ],
+          "ts": "2026-11-08T13:35:06+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "1e782a2dcd26be78d48d23369f8d4d4248e627e93c8ab5cd59478682ecff47d9",
+          "output_sha256": "8bc43eef0dfba8887767a6de41af527081f5ca0487c6225471111a8015264e55",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/capabilities_verified.json",
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/claim_ledger.json",
+            "/Users/bertram/Desktop/BookForge/cache/a4add8d6233c/fidelity_report.json"
+          ],
+          "ts": "2026-11-08T13:35:06+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "043547b4dba8ddbaf61e8b1ec61e22d6e87df56a1e769e9bcf1d180b859aec47",
+          "output_sha256": "67e5fc8167d4c24da5959a6b4f2a8d9a7abe0bcfa0122136ec36ef526594268d",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/out/desktop-check/build_manifest.json"
+          ],
+          "ts": "2026-11-08T13:35:07+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "e417284cbeceafc0736a2406fee813af9c0f0257fafa729e083409a47ecd5ba2",
+          "output_sha256": "8b2b33764aaaafa4dd8dd4f37b78f03388857344569b12783874c870e76f3686",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/out/desktop-check/validation_report.json"
+          ],
+          "ts": "2026-11-08T13:35:08+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-08T13:35:08+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "65ae47bd3a4693ad2e04a38040455e92ce260cf4dc2740ea71a97bac7a4236ad",
+          "output_sha256": "a6f28168fea924f1a130e6d999ca33127da7f59939133e5e87e26b33bff59ef8",
+          "outputs": [
+            "/Users/bertram/Desktop/BookForge/out/desktop-check/metrics.json"
+          ],
+          "ts": "2026-11-08T13:35:09+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    },
+    "rename-check": {
+      "created_at": "2026-11-09T03:26:51+00:00",
+      "book_sha256": "af16355aad35396a81498d5fc80468b6b21a1c08a4f1346a201a997887806977",
+      "model_fingerprint": "deterministic-0.1.0 (no LLM judge in this batch)",
+      "engine_config_hash": "12ccf801d08185eb2cb1de3ffcdb393a6e2d3040bf6b44822fc293b4cbc3c91a",
+      "plugin_hash": "",
+      "stages": {
+        "S0": {
+          "status": "completed",
+          "input_sha256": "0beb58f10cdd290b72d98724fd6db91445ce8ea8065d48bcf4a8d2651f60754a",
+          "output_sha256": "2188284b632c6fd7775b5b3de56440c2770979a126ac4032c737aa11086b3029",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/sources.json",
+            "/Users/bertram/Desktop/BookLeme/out/rename-check/provenance_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:51+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S1": {
+          "status": "completed",
+          "input_sha256": "e1c577cd7a5fa7764d5357b4e96cd3da000a9f77e0165f6734854101c02a5ae3",
+          "output_sha256": "8cb5fc1f8744db76da188bc8a6c7469784eb8fe4accd746d7346f112280c6717",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/full_text.txt",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/char_map.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/toc.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/extraction_report.json"
+          ],
+          "ts": "2026-11-09T03:26:51+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "0 个源降级"
+        },
+        "S2": {
+          "status": "completed",
+          "input_sha256": "ad29c679d568503407936bc3b5d7fffabc893f6939dbae77eb1bf3fa37994dee",
+          "output_sha256": "5e11461a80be4c4c96527a277524cce6f27071026dd46d9725027cc1b9351939",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/segments.json"
+          ],
+          "ts": "2026-11-09T03:26:51+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "method=headings"
+        },
+        "S3": {
+          "status": "completed",
+          "input_sha256": "968d2906b2b054f1d0496d2ee8dd2946c44f2fad8d7957845c5c33eb628df760",
+          "output_sha256": "826b8f94b4862cc28e19be0ff46a1af2be8b82c15a4a0c48c24f9f2119f8d740",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/rename-check/router_result.json"
+          ],
+          "ts": "2026-11-09T03:26:52+00:00",
+          "attempts": 1,
+          "degraded": true,
+          "note": "top1=coach_dialogue margin=0.129876"
+        },
+        "S4": {
+          "status": "completed",
+          "input_sha256": "cf436404939b402911f0a038cf29eb1a382ded6a93edb0bf2878007fadd9a5ce",
+          "output_sha256": "6db56f770907df7f87c0b48362584773590515ad8f65d25eee9256f7307e441a",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities.json"
+          ],
+          "ts": "2026-11-09T03:26:52+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "extractor=deterministic-markup caps=6"
+        },
+        "S5": {
+          "status": "completed",
+          "input_sha256": "6420ea94c51a4ceee3a3667a9a484ac76dceb1936314fac7fa6e552087e2a000",
+          "output_sha256": "188d4704d073b4a3477043e82e5d8b4cc4c49aca81b139a6857b20e3f4f29d2e",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/capabilities_verified.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/claim_ledger.json",
+            "/Users/bertram/Desktop/BookLeme/cache/af16355aad35/fidelity_report.json"
+          ],
+          "ts": "2026-11-09T03:26:52+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "verified=6"
+        },
+        "S6": {
+          "status": "completed",
+          "input_sha256": "ff0824e2f3ed35d8977f194792e90db7752ee17b6a8782efe9b53ad7c332ed1e",
+          "output_sha256": "f7dfb26b69db4a1d1438a4d650f80574c005edb3b8a598c3efdc7419a4a0ddbd",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/rename-check/build_manifest.json"
+          ],
+          "ts": "2026-11-09T03:26:52+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S7": {
+          "status": "completed",
+          "input_sha256": "82547664caf29f1befb27d59cb8cfb6ec49dcca2193821fa429580f3fbf5fdb3",
+          "output_sha256": "5f36346133ae71dba0f045ec73327e6d23b94564a19bcd922648888bdbd99e8f",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/rename-check/validation_report.json"
+          ],
+          "ts": "2026-11-09T03:26:53+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        },
+        "S8": {
+          "status": "skipped",
+          "input_sha256": "skipped",
+          "output_sha256": "",
+          "outputs": [],
+          "ts": "2026-11-09T03:26:53+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": "install=false"
+        },
+        "S9": {
+          "status": "completed",
+          "input_sha256": "f981738f80b320d93d5d321af4f93f0f5da19bdc5387de38f52f87c71c7eadea",
+          "output_sha256": "8d218aae11114abd273e2d53d03812d2401243dfb64990277a4afe84f62024e4",
+          "outputs": [
+            "/Users/bertram/Desktop/BookLeme/out/rename-check/metrics.json"
+          ],
+          "ts": "2026-11-09T03:26:53+00:00",
+          "attempts": 1,
+          "degraded": false,
+          "note": ""
+        }
+      }
+    }
+  }
+}

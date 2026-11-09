@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme sources.json",
+  "type": "object",
+  "required": ["schema_version", "run_id", "book_sha256", "sources"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "book_sha256": { "type": "string" },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source_id", "origin", "kind", "sha256", "tier"],
+        "properties": {
+          "source_id": { "type": "string" },
+          "origin": { "type": "string", "enum": ["local", "public"] },
+          "kind": { "type": "string" },
+          "path": { "type": "string" },
+          "url": { "type": "string" },
+          "sha256": { "type": "string" },
+          "bytes": { "type": "integer" },
+          "mime": { "type": "string" },
+          "tier": { "type": "string", "enum": ["S", "A", "B", "C"] },
+          "license_note": { "type": "string" },
+          "retrieved_at": { "type": "string" },
+          "extract_status": { "type": "string" },
+          "figure_text_lost": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "note": "仅含本批合成样本。M4 需补齐 4 段合成书的 golden 标签后再计算 router_accuracy。",
+  "labels": [
+    {
+      "file": "evals/cases/synthetic/coach_book.md",
+      "expected_genre": "coach_dialogue",
+      "expected_default_engines": ["behavior_skill"],
+      "observed_top1": "coach_dialogue",
+      "observed_margin": 0.129876,
+      "observed_engines": ["knowledge_pack", "behavior_skill"],
+      "observed_override_source": "ambiguity",
+      "top1_correct": true,
+      "note": "margin 0.129876 < 0.15 阈值，按设计触发歧义兜底双引擎；这不是路由错误，是兜底机制生效。"
+    }
+  ]
+}

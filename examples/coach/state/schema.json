@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "required": [
+    "slug",
+    "session_id",
+    "current_state",
+    "turn_index"
+  ],
+  "properties": {
+    "slug": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "current_state": {
+      "type": "string"
+    },
+    "turn_index": {
+      "type": "integer"
+    },
+    "asked_questions": {
+      "type": "array"
+    },
+    "answers": {
+      "type": "array"
+    },
+    "skipped_reverse": {
+      "type": "array"
+    },
+    "version": {
+      "type": "integer"
+    }
+  }
+}

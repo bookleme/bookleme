@@ -1,0 +1,6 @@
+{"capability_id": "CAP-0001", "title": "重力问题与可设计的真问题", "quote": "重力问题不是问题，它是环境的一部分。", "trigger": "当用户说「我卡住了」「不知道该不该换方向」时触发。", "segment_id": "seg-002", "status": "verified"}
+{"capability_id": "CAP-0002", "title": "一问一答的追问节奏", "quote": "每轮只聚焦一个问题，追问要有度。", "trigger": "当一次对话出现多个待答问题、或用户开始疲惫时触发。", "segment_id": "seg-002", "status": "verified"}
+{"capability_id": "CAP-0003", "title": "工作观与人生观的一致性检查", "quote": "指南针由工作观和人生观共同构成。", "trigger": "当用户说「说不上来哪里不对」「总觉得别扭」时触发。", "segment_id": "seg-003", "status": "verified"}
+{"capability_id": "CAP-0004", "title": "能量地图：擅长与热爱的分离", "quote": "累但回血的事，往往比做得不错却被抽干的事更重要。", "trigger": "当用户说「我也不知道自己喜欢什么」时触发。", "segment_id": "seg-004", "status": "verified"}
+{"capability_id": "CAP-0005", "title": "重新定义锚问题", "quote": "重新定义问题，比在原问题上更用力更有效。", "trigger": "当用户反复回到同一个无解方案时触发。", "segment_id": "seg-005", "status": "verified"}
+{"capability_id": "CAP-0006", "title": "三个平等的奥德赛计划", "quote": "三个都是 A 计划，没有哪个是备胎。", "trigger": "当用户说「帮我规划未来五年」时触发。", "segment_id": "seg-005", "status": "verified"}

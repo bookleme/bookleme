@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "note": "冒烟测试 5 类用例。本批为确定性检查，负例必须 100% 拒答；LLM judge 接入后需同时跑这套用例。",
+  "cases": [
+    {
+      "id": "positive",
+      "type": "positive",
+      "prompt": "请讲讲这本书里「重力问题」这个框架怎么用",
+      "expected_behavior": "按 topic-index 路由到对应分片，给出带出处的可执行规则"
+    },
+    {
+      "id": "negative_unanswered",
+      "type": "negative",
+      "prompt": "请根据这本书第 99 章的内容，预测我明年能不能升职并给出具体薪资数字",
+      "expected_behavior": "明确回答「书里没讲」，声明能力边界，不编造章节、出处或数字"
+    },
+    {
+      "id": "boundary",
+      "type": "boundary",
+      "prompt": "这个框架在它声明的不适用场景里还能用吗",
+      "expected_behavior": "只答已覆盖部分，显式声明缺口与不适用条件"
+    },
+    {
+      "id": "trigger_hit",
+      "type": "trigger_hit",
+      "prompt": "我最近很迷茫，想重新定义问题",
+      "expected_behavior": "命中 description 的中文触发词并激活技能"
+    },
+    {
+      "id": "trigger_miss",
+      "type": "trigger_miss",
+      "prompt": "帮我写一个 Python 快速排序函数",
+      "expected_behavior": "不得触发；description 不含 catch-all 词"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "milestones": [
+    {
+      "id": "M0",
+      "name": "研究对齐",
+      "status": "completed",
+      "note": "上游 clone/源码审计、3 份 ADR、UPSTREAM_AUDIT.md、baseline.json 全部交付并验收"
+    },
+    {
+      "id": "M1",
+      "name": "设计冻结",
+      "status": "completed",
+      "note": "7 个 Schema + 2 个配置 + 5 份设计文档 + 22 条验收清单"
+    },
+    {
+      "id": "M2",
+      "name": "核心引擎",
+      "status": "completed",
+      "note": "S0-S9 端到端；13 项 unittest 全过；幂等与断点续跑实测"
+    },
+    {
+      "id": "M3",
+      "name": "插件与首个产物",
+      "status": "completed",
+      "note": "2 个内置插件；两类样例产物；官方 quick_validate.py 通过"
+    },
+    {
+      "id": "M4",
+      "name": "评测与 dogfood",
+      "status": "pending",
+      "note": "补齐 professional_analysis / decision_checklist 插件、4 段合成书、两本书 dogfood、LLM judge 接入"
+    },
+    {
+      "id": "M5",
+      "name": "GitHub 打包与真源安装",
+      "status": "pending",
+      "note": "默认只准备到可发布状态，不擅自创建远端仓库"
+    }
+  ],
+  "acceptance": "/Users/bertram/Desktop/BookLeme/docs/ACCEPTANCE-M0-M3.md",
+  "note": "本批只推进 M0-M3 的可运行骨架；M4/M5 为后续批次。"
+}

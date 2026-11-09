@@ -1,0 +1,66 @@
+{
+  "schema_version": "bookleme-baseline/v1",
+  "bookleme_version": "0.0.0+M0.placeholder",
+  "model_fingerprint": null,
+  "plugin_hash": null,
+  "status": "BLOCKED",
+  "generated_at": "2026-11-08",
+  "metric_set": "plan-section-11-metrics-json",
+  "notes": "M0 占位基线，全部指标未实测。value 恒为 null、status 恒为 BLOCKED；model_fingerprint / plugin_hash 为 null 时不得参与 CI 比对。target 为硬验收目标而非实测结果：'>=' 表示下限、'<=' 表示上限、精确数值表示等值目标；groundedness 为 heuristic，只报告、不作硬门，故 target=null。不得把本文件的占位值当作 BookLeme 性能结论，亦不得把上游 24x-51x 自测数据 / 2.4x-15.6x 模型估算 / 论文 ~2x / ~$1-per-book 估算转写为本项目结论（见 ADR-003 §6）。unsupported_claim_rate 为 measured+heuristic 混合指标，此处按 measured 登记，heuristic 部分只报告（见 ADR-003 §2 #5）。shingle_overlap_max 属计划第 6 节七指标集，作为 copyright_gate.py 确定性硬门执行（目标 <=0.10），不列入本 CI 基线九指标集。",
+  "metrics": {
+    "router_accuracy": {
+      "value": null,
+      "metric_type": "measured",
+      "status": "BLOCKED",
+      "target": ">=0.90"
+    },
+    "citation_resolution_rate": {
+      "value": null,
+      "metric_type": "measured",
+      "status": "BLOCKED",
+      "target": "1.00"
+    },
+    "verbatim_violation_rate": {
+      "value": null,
+      "metric_type": "measured",
+      "status": "BLOCKED",
+      "target": "0.00"
+    },
+    "coverage_score": {
+      "value": null,
+      "metric_type": "measured",
+      "status": "BLOCKED",
+      "target": ">=0.85"
+    },
+    "trigger_hit_rate": {
+      "value": null,
+      "metric_type": "measured",
+      "status": "BLOCKED",
+      "target": ">=0.90"
+    },
+    "negative_refusal_rate": {
+      "value": null,
+      "metric_type": "measured",
+      "status": "BLOCKED",
+      "target": "1.00"
+    },
+    "artifact_compliance_rate": {
+      "value": null,
+      "metric_type": "measured",
+      "status": "BLOCKED",
+      "target": "1.00"
+    },
+    "unsupported_claim_rate": {
+      "value": null,
+      "metric_type": "measured",
+      "status": "BLOCKED",
+      "target": "<=0.05"
+    },
+    "groundedness": {
+      "value": null,
+      "metric_type": "heuristic",
+      "status": "BLOCKED",
+      "target": null
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme claim_ledger.json",
+  "type": "object",
+  "required": ["schema_version", "book_sha256", "claims"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "book_sha256": { "type": "string" },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "text", "source_id", "origin", "source_tier", "quote_verified", "status"],
+        "properties": {
+          "claim_id": { "type": "string" },
+          "text": { "type": "string" },
+          "capability_id": { "type": "string" },
+          "source_id": { "type": "string" },
+          "origin": { "type": "string", "enum": ["local", "public"] },
+          "chapter": { "type": "string" },
+          "section": { "type": "string" },
+          "page": { "type": "integer" },
+          "source_tier": { "type": "string", "enum": ["S", "A", "B", "C"] },
+          "quote_char_count": { "type": "integer" },
+          "quote_verified": { "type": "boolean" },
+          "verification": { "type": "object" },
+          "groundedness": { "type": ["number", "null"] },
+          "groundedness_type": { "type": "string", "enum": ["measured", "heuristic"] },
+          "status": { "type": "string", "enum": ["supported", "partial", "invalidated"] },
+          "evidence_path": { "type": "string" }
+        }
+      }
+    }
+  }
+}
