@@ -65,6 +65,11 @@ def _steps(plugin, ctx: dict) -> str:
         else "按状态机推进：每轮只问一题，读完回答后先做简短反馈再进入下一题；"
              "每轮结束把 current_state / asked_questions / answers 写入 state.json"
              "（用 `scripts/state_io.py`，约定见 `references/state-guide.md`）。"
+             "完整多轮会话先读 `references/session-map.md` 取默认阶段序与题目预算。"
+    )
+    step4_note = (
+        "正文骨架用 `assets/blueprint-template.md`，交付前对照其中的「必备字段核对」。"
+        if ctx["engine"] == "behavior_skill" else ""
     )
     return "\n".join([
         "### Step 1：确认适用条件",
@@ -81,7 +86,7 @@ def _steps(plugin, ctx: dict) -> str:
         "",
         "### Step 4：产出具名结果并声明边界",
         "",
-        "按「输出格式」给出带板块的结果，显式写出不适用条件与「还需要哪些数据」。",
+        f"按「输出格式」给出带板块的结果，显式写出不适用条件与「还需要哪些数据」。{step4_note}",
         "",
         "### Step 5：遇到书中未覆盖的问题",
         "",
@@ -118,6 +123,25 @@ def _skill_md(plugin, ctx: dict) -> str:
         "不适用于书中未覆盖的问题，以及需要专业资质判断的心理、医疗、法律、投资场景。"
     )
     section_lines = "\n\n".join(f"### {s}\n\n（回引用户自述的结论）" for s in contract["sections"])
+    meta_bullets = ("- 命中的框架：（名称 + 出处）\n- 带出处的规则：（When X, do Y, because Z）\n"
+                    "- 执行步骤：1. … 2. … 3. …\n- 不适用边界：…\n- 出处清单：segment_id / char_range")
+    meta_fields = ["命中的框架", "带出处的规则", "执行步骤", "不适用边界", "出处清单"]
+    if list(contract["sections"]) == meta_fields:
+        # 板块本身即溯源元信息（速查类产物）：单示例即可，不设元信息附录
+        example_block = f"示例结构：\n\n```\n## {contract['artifact']}\n{meta_bullets}\n```"
+    else:
+        example_block = (
+            "示例结构（正文按「必备板块」逐节产出；「元信息附录」是溯源层，两层都要交付）：\n\n"
+            f"```\n## {contract['artifact']}\n\n{section_lines}\n\n"
+            f"## 元信息附录\n{meta_bullets}\n```"
+        )
+    notes = []
+    if contract.get("required_fields"):
+        notes.append(f"必备字段（缺一不可）：{' / '.join(contract['required_fields'])}。")
+    if contract.get("file_name"):
+        notes.append(f"交付约定：以 Markdown 文件落盘（模板名 `{contract['file_name']}`，"
+                     f"建议命名 `<产物名>_<YYYY-MM-DD>.md`），交付时给出完整文件绝对路径。")
+    notes_block = ("\n" + "\n".join(notes) + "\n") if notes else ""
     return f"""---
 name: {ctx['slug']}
 description: {ctx['description']}
@@ -145,22 +169,8 @@ description: {ctx['description']}
 
 ## 输出格式
 
-{output_seed}
-
-示例结构（正文按「必备板块」逐节产出；「元信息附录」是溯源层，两层都要交付）：
-
-```
-## {contract['artifact']}
-
-{section_lines}
-
-## 元信息附录
-- 命中的框架：（名称 + 出处）
-- 带出处的规则：（When X, do Y, because Z）
-- 执行步骤：1. … 2. … 3. …
-- 不适用边界：…
-- 出处清单：segment_id / char_range
-```
+{output_seed}{notes_block}
+{example_block}
 
 ---
 
@@ -214,9 +224,12 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
 
     if ctx["engine"] == "behavior_skill":
         contract = plugin.output_contract
+        fields = contract.get("required_fields") or []
+        field_block = ("\n## 必备字段核对\n\n" + "\n".join(f"- [ ] {f}" for f in fields) + "\n") if fields else ""
         files["assets/blueprint-template.md"] = (
             f"# {contract['artifact']}（模板）\n\n"
             + "\n".join(f"## {s}\n\n（待填写）\n" for s in contract["sections"])
+            + field_block
         )
         files["scripts/state_io.py"] = _STATE_IO
         files["state/schema.json"] = json.dumps(_STATE_SCHEMA, ensure_ascii=False, indent=2) + "\n"
@@ -236,6 +249,12 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
             f"{plugin.extra_sections.get('state_guide', '')}\n"
             f"{state_line}"
         )
+        session_map = plugin.extra_sections.get("session_map")
+        if session_map:
+            files["references/session-map.md"] = (
+                "## 何时读本文件\n\n多轮完整会话开始前与中断恢复时读取。\n\n"
+                f"{session_map}\n"
+            )
     else:
         lines = ["## 何时读本文件", "", "需要快速判断「什么情境用哪条规则」时读取本文件。", "",
                  "## 决策规则", ""]

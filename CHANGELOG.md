@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.2 (2026-11-10) — P1 四项：契约渲染收口 + 提问顺序落盘
+
+- **required_fields 死契约修复**：`output_contract.required_fields` 渲染进 SKILL.md「必备字段（缺一不可）」，
+  并生成进 `assets/blueprint-template.md` 的「必备字段核对」清单——「证伪/放弃条件」「最小原型」等
+  字段要求不再被静默丢弃。
+- **孤儿资产修复**：工作流 Step 4 显式引用 `assets/blueprint-template.md` 作为正文骨架
+  （仅 behavior_skill 引擎；knowledge_pack 无此资产）。
+- **交付约定落盘**：`output_contract.file_name` 渲染为「交付约定」（Markdown 落盘、建议命名
+  `<产物名>_<YYYY-MM-DD>.md`、交付时给出完整文件绝对路径），消除执行者即兴发挥。
+- **提问顺序落盘（session-map）**：coach_dialogue 新增 `session_map`——完整会话默认八阶段序
+  （真问题甄别→仪表盘→指南针→能量地图→锚问题→奥德赛计划→四维评分→原型+失败免疫收尾）、
+  6-9 题目预算、按 topic-index 定位框架卡（不写死编号）、断点恢复对照 state.json；
+  渲染为 `references/session-map.md`，Step 2 挂载。至此插件文档"价值在提问顺序"名实相符。
+- **示例自适应**：速查类产物（必备板块本身即溯源元信息）保持单示例，「正文+元信息附录」双层
+  示例仅用于板块≠元信息的产物，消除 kp 再生时的示例冗余（上一批标注的遗留项一并了结）。
+- **顺手修（P2 新发现，直接威胁本批交付）**：S6 缓存哈希此前只含插件源码、不含渲染器
+  ——改 `render/skill.py` 会命中陈旧缓存吐旧产物（与曾修复的 s2_hash 同类缺陷）→
+  哈希纳入 `render/*.py` 源码内容，结构锁测试锁死。
+- 回归 +4（TestOutputContractRendering：契约字段渲染 / 模板引用与必备字段清单 /
+  session-map 生成与挂载 / S6 缓存结构锁），共 30 项全过。
+
+**如实标注的未办项（P2）**：`routing_rules.intent_map` 仍为死元数据且与真实能力序号不一致
+（奥德赛计划→framework-04 应为 05）；冒烟用例缺中断续聊与长对话纪律覆盖；`render/skill.py`
+Step 3 "带上处"漏字；`min_tokens/max_tokens` 字段名与渲染单位「字」不一致。
+
 ## 0.1.1 (2026-11-09) — P0 修复：可中断续聊链路 + 输出格式单一 schema
 
 首次真实委托（9 轮教练会话，产出完整人生设计蓝图）实测暴露两处断链，本次修复并回归：

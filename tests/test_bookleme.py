@@ -457,5 +457,52 @@ class TestRuntimeStateContract(unittest.TestCase):
         self.assertNotIn("示例结构：\n\n```\n## ", skill_md)
 
 
+class TestOutputContractRendering(unittest.TestCase):
+    """P1 回归：required_fields/交付约定渲染、blueprint-template 引用、session-map 落盘。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from bookleme.pipeline import Pipeline
+        cfg = load_run_config()
+        pipe = Pipeline(cfg, load_router_config())
+        cls.summary = pipe.run([str(SYNTHETIC)], run_id="unittest-contract-p1",
+                               title="人生设计练习册（合成）")
+
+    def _artifact(self, short):
+        return [Path(a) for a in self.summary["artifacts"] if short in Path(a).name][0]
+
+    def test_required_fields_and_delivery_convention_rendered(self):
+        bs_md = (self._artifact("bs") / "SKILL.md").read_text(encoding="utf-8")
+        kp_md = (self._artifact("kp") / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("必备字段（缺一不可）：当前状态打分 / 重新定义后的真问题 / 三个平等 A 计划 / 证伪/放弃条件 / 最小原型。",
+                      bs_md, "required_fields 必须渲染进 SKILL.md")
+        self.assertIn("交付约定：以 Markdown 文件落盘（模板名 `blueprint.md`", bs_md)
+        self.assertIn("必备字段（缺一不可）：框架名 / 出处 / 可执行步骤 / 边界。", kp_md)
+        self.assertIn("模板名 `answer.md`", kp_md)
+
+    def test_blueprint_template_referenced_and_has_checklist(self):
+        bs = self._artifact("bs")
+        skill_md = (bs / "SKILL.md").read_text(encoding="utf-8")
+        tpl = (bs / "assets/blueprint-template.md").read_text(encoding="utf-8")
+        self.assertIn("assets/blueprint-template.md", skill_md, "SKILL.md 必须引用蓝图模板（孤儿资产修复）")
+        self.assertIn("## 必备字段核对", tpl)
+        self.assertIn("- [ ] 证伪/放弃条件", tpl)
+        self.assertIn("- [ ] 最小原型", tpl)
+
+    def test_session_map_generated_and_linked(self):
+        bs = self._artifact("bs")
+        skill_md = (bs / "SKILL.md").read_text(encoding="utf-8")
+        sm = (bs / "references/session-map.md").read_text(encoding="utf-8")
+        self.assertIn("references/session-map.md", skill_md, "Step 2 必须挂 session-map")
+        self.assertIn("默认阶段序", sm)
+        self.assertIn("① 真问题甄别", sm)
+        self.assertIn("6-9", sm)
+
+    def test_s6_cache_hash_covers_renderer_sources(self):
+        """结构锁：S6 缓存哈希必须纳入渲染器源码，改渲染器即失效（防陈旧产物）。"""
+        src = (ROOT / "bookleme/pipeline.py").read_text(encoding="utf-8")
+        self.assertIn("+ plugin_files + renderer_files", src)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

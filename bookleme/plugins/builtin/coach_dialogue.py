@@ -110,6 +110,7 @@ $sections
     engine_kind="behavior",
     extra_sections={
         "state_guide": "运行期状态写入 <state_dir>/<slug>/<session_id>/state.json：state_dir 取环境变量 BOOKLEME_STATE_DIR，未设置时默认 ~/.bookleme/sessions（scripts/state_io.py 的 load/save 已内置该默认值，state_dir 可省略）。每轮问答结束调用 save 追加进度，恢复会话时先 load 再接着问。技能包内 state/schema.json 与 scripts/state_io.py 保持只读。",
+        "session_map": "完整会话（多轮教练流程）默认阶段序：① 真问题甄别（含重力问题过滤）→ ② 现状仪表盘 → ③ 指南针（工作观+人生观）→ ④ 能量地图 → ⑤ 锚问题 → ⑥ 奥德赛计划 → ⑦ 四维评分与路线取舍 → ⑧ 原型行动清单 + 失败免疫收尾。书里没有对应框架的阶段跳过并在结果中说明，不要硬套。阶段顺序可依用户回答微调，但全程主问题 6-9 个、每轮只问一题；每阶段的框架卡按 topic-index 的触发语定位，不写死编号。恢复会话时用 state.json 的 asked_questions 对照本图定位断点。",
         "data_dependency": "本 Skill 不绑定任何专有数据库；缺少用户陈述时先追问，不用假设填充。",
     },
 )

@@ -372,9 +372,10 @@ class Pipeline:
             raise PipelineError("没有可用体裁插件")
         artifacts: list[dict] = []
         plugin_files = [Path(getattr(p, "source_path", "")) for p in registry.values()]
+        renderer_files = sorted((Path(__file__).parent / "render").glob("*.py"))
         s6_paths = [out_dir / "build_manifest.json"]
         s6_hash = stage_input_hash([s5_paths[0], s2_paths[0], s3_paths[0], DEFAULT_RUN_CONFIG]
-                                   + plugin_files)
+                                   + plugin_files + renderer_files)
         if self.state.should_skip(run_id, "S6", s6_hash, s6_paths) and (out_dir / "build").exists():
             log("S6 SKIP")
             build_manifest_obj = load_json(s6_paths[0])
