@@ -56,16 +56,17 @@ The problem: after reading, these "ways of working" are scattered across 300 pag
   <img src="docs/assets/bookleme-witch-study.png" alt="Compile knowledge into skills" width="72%">
 </p>
 
-<details>
-<summary><b>Three design principles</b> (adopted as engineering practice, not claimed as verified)</summary>
+### Three design principles
 
-1. **Compile-time / run-time separation** — read the book once at compile time; load knowledge slices on demand at run time
-2. **Three-level progressive disclosure** — always-loaded entry → on-demand slices → local full text
-3. **Decouple deterministic extraction from probabilistic generation** — unit-testable, diffable, regression-safe
+> ⚠️ **Adopted as engineering practice, not claimed as verified** — "Distilling structure rather than summarising" is a design choice, not a verified conclusion. This project marks it `UNVERIFIED` rather than stating it as fact.
 
-> "Distilling structure rather than summarising" is a design choice, not a verified conclusion. This project marks it `UNVERIFIED` rather than stating it as fact.
-
-</details>
+<table>
+<tr>
+<td width="33%" valign="top"><b>01 · Compile-time / run-time separation</b><br/><br/>Read the book once at compile time; load knowledge slices on demand at run time.</td>
+<td width="33%" valign="top"><b>02 · Three-level progressive disclosure</b><br/><br/>Always-loaded entry → on-demand slices → local full text.</td>
+<td width="33%" valign="top"><b>03 · Deterministic × probabilistic decoupling</b><br/><br/>Deterministic extraction separated from probabilistic generation — unit-testable, diffable, regression-safe.</td>
+</tr>
+</table>
 
 ---
 
@@ -123,16 +124,20 @@ A **genre plugin** determines what a book becomes. Four built in:
 
 Upstream projects market "no hallucination" without automated verification. **We split "zero hallucination" into 7 measurable metrics:**
 
-| Metric | Type | Target | This batch |
+| Metric | Type | Target | Measured · real-book batch |
 |---|---|---|---|
 | `citation_resolution_rate` | measured | 1.00 | ✅ 1.00 |
 | `verbatim_violation_rate` | measured | 0.00 | ✅ 0.00 |
 | `negative_refusal_rate` | measured | 1.00 | ✅ 1.00 |
 | `trigger_hit_rate` | measured | ≥0.90 | ✅ 1.00 |
 | `artifact_compliance_rate` | measured | 1.00 | ✅ 1.00 |
-| `shingle_overlap_max` | measured | ≤0.10 | ✅ 0.084 |
-| `coverage_score` | measured | ≥0.85 | ⚠️ **0.667 (below target, reported honestly)** |
+| `shingle_overlap_max` | measured | ≤0.10 | ✅ 0.0006 |
+| `coverage_score` | measured | ≥0.85 | ✅ **1.00** |
 | `groundedness` | heuristic | report-only | `null` (LLM judge not wired) |
+
+> 📎 Numbers from the real-book batch (a 273-page Chinese book, run 20261109-164758): 14/14 capabilities verified, both engines pass smoke, all 6 copyright gates passed (quote ratio 0.016 / cap 0.03). Early synthetic-batch process values (`coverage_score` 0.667) are kept on record.
+
+> 🧪 **Battle-tested on a real book**: the coaching skill compiled from a 273-page Chinese book passed a 9-turn real-conversation regression — one question per turn · gravity-problem screening · resumable state · 10k-character blueprint delivered.
 
 **6 copyright hard gates** (any failure → no install, no publish): single quote ≤150 chars and verbatim-traceable · total quote ratio ≤0.03 · max contiguous copy ≤150 chars · 13-char shingle overlap ≤0.10 · artifact contains no full text / slices · `contains_original_text = false`.
 
@@ -192,7 +197,7 @@ S0 Intake ─► S1 Deterministic extraction ─► S2 Chinese segmentation ─�
 |---|---|---|
 | S0–S2 | Extraction, normalisation, Chinese segmentation (no "Chapter N" dependency) | Deterministic Python |
 | S3 | 12-feature genre routing + ambiguity fallback (auto dual-engine, never stalls) | Deterministic + pluggable LLM |
-| S4 | Atomic capability extraction (RIA++ six fields) | Deterministic extractor (LLM extractor is an interface placeholder) |
+| S4 | Atomic capability extraction (RIA++ six fields) | Deterministic extractor + optional LLM extractor (OpenAI-compatible · quotes verified verbatim for life · falls back when unconfigured) |
 | S5 | Verbatim quote verification + claim ledger + 7 metrics | Deterministic + judge placeholder |
 | S6 | Plugin-driven rendering (stdlib string templates) | Deterministic Python |
 | S7–S9 | Four-way validation, idempotent install, smoke evaluation | Deterministic Python |
@@ -228,7 +233,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 🔜 **M4** `professional_analysis` / `decision_checklist` plugins, 4-section synthetic eval set, two-book dogfood, LLM judge wiring
 - 🔜 **M5** Skill source-of-truth install, real numbers in `evals/baseline.json`, cross-book capability merge
 
-**Honest scope notes** (this project does not overstate): S4 is currently a deterministic extractor; the LLM judge is not wired (`groundedness` / V2 / V3 are `null`); `coverage_score` is 0.667 against a 0.85 target; `professional_analysis` and `decision_checklist` remain in M4.
+**Honest scope notes** (this project does not overstate): the LLM judge is not wired (`groundedness` / V2 / V3 remain `null`, report-only with no hard gate); `professional_analysis` and `decision_checklist` remain in M4; `coverage_score` reached 1.00 on the real-book batch, while the early synthetic-batch process value 0.667 is kept on record.
 
 ---
 

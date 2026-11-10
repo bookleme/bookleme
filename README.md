@@ -56,16 +56,17 @@
   <img src="docs/assets/bookleme-witch-study.png" alt="把知识编译成技能" width="72%">
 </p>
 
-<details>
-<summary><b>三条设计原理</b>（工程上采纳，但未经本项目验证）</summary>
+### 三条设计原理
 
-1. **编译期 / 运行期分离** —— 书只在编译时读一遍，运行时按需加载知识分片
-2. **渐进式披露三级** —— 常驻入口 → 按需分片 → 本地全文
-3. **确定性提取与概率性生成解耦** —— 可单测、可 diff、可回归
+> ⚠️ **工程上采纳，但未经本项目验证** —— 「提炼结构而非摘要」只是设计选择，不是已被验证的结论。本项目把它标为 `UNVERIFIED`，不写成既成事实。
 
-> 「提炼结构而非摘要」只是设计选择，不是已被验证的结论。本项目把它标为 `UNVERIFIED`，不写成既成事实。
-
-</details>
+<table>
+<tr>
+<td width="33%" valign="top"><b>01 · 编译期 / 运行期分离</b><br/><br/>书只在编译时读一遍，运行时按需加载知识分片。</td>
+<td width="33%" valign="top"><b>02 · 渐进式披露三级</b><br/><br/>常驻入口 → 按需分片 → 本地全文。</td>
+<td width="33%" valign="top"><b>03 · 确定性 × 概率性解耦</b><br/><br/>确定性提取与概率性生成分离 —— 可单测、可 diff、可回归。</td>
+</tr>
+</table>
 
 ---
 
@@ -123,16 +124,20 @@
 
 上游项目把「no hallucination」写成主张，却没有自动回验。**我们把「零幻觉」拆成 7 个可测指标**：
 
-| 指标 | 类型 | 目标 | 本批评测 |
+| 指标 | 类型 | 目标 | 实测 · 真实书稿批 |
 |---|---|---|---|
 | `citation_resolution_rate` | measured | 1.00 | ✅ 1.00 |
 | `verbatim_violation_rate` | measured | 0.00 | ✅ 0.00 |
 | `negative_refusal_rate` | measured | 1.00 | ✅ 1.00 |
 | `trigger_hit_rate` | measured | ≥0.90 | ✅ 1.00 |
 | `artifact_compliance_rate` | measured | 1.00 | ✅ 1.00 |
-| `shingle_overlap_max` | measured | ≤0.10 | ✅ 0.084 |
-| `coverage_score` | measured | ≥0.85 | ⚠️ **0.667（未达标，如实保留）** |
+| `shingle_overlap_max` | measured | ≤0.10 | ✅ 0.0006 |
+| `coverage_score` | measured | ≥0.85 | ✅ **1.00** |
 | `groundedness` | heuristic | 只报告 | `null`（LLM judge 未接入） |
+
+> 📎 指标取自真实书稿批（273 页中文书，run 20261109-164758）：14/14 能力 verified、双引擎冒烟全过、版权六门全过（引文占比 0.016 / 上限 0.03）。早期合成书批过程值（`coverage_score` 0.667）如实留档。
+
+> 🧪 **真实书稿实战**：273 页中文书端到端编译出的教练 Skill，已通过 9 轮真实对话回归 —— 一次一问 · 重力问题甄别 · 中断续聊断点恢复 · 万字蓝图交付。
 
 **6 条版权硬门**（任一失败即不安装、不发布）：单条引文 ≤150 字且逐字可追溯 · 总引文比 ≤0.03 · 连续复制 ≤150 字 · 13 字 shingle 重叠 ≤0.10 · 产物不含全文 / 切片 · `contains_original_text = false`。
 
@@ -192,7 +197,7 @@ S0 输入登记 ─► S1 确定性提取 ─► S2 中文分段 ─┬─► S3
 |---|---|---|
 | S0–S2 | 提取、归一、中文分段（不依赖 "Chapter N"） | 确定性 Python |
 | S3 | 12 特征体裁路由 + 歧义兜底（自动双引擎，不停人） | 确定性 + 可插拔 LLM |
-| S4 | 原子能力抽取（RIA++ 六段） | 确定性抽取器（LLM 抽取器为接口占位） |
+| S4 | 原子能力抽取（RIA++ 六段） | 确定性抽取器 + 可选 LLM 抽取器（OpenAI 兼容 · 引文终身逐字回验 · 缺配置自动回退） |
 | S5 | 逐字引文校验 + claim ledger + 7 指标 | 确定性 + judge 占位 |
 | S6 | 插件驱动渲染（标准库字符串模板） | 确定性 Python |
 | S7–S9 | 四重校验、幂等安装、冒烟评测 | 确定性 Python |
@@ -228,7 +233,7 @@ S0 输入登记 ─► S1 确定性提取 ─► S2 中文分段 ─┬─► S3
 - 🔜 **M4** 补齐 `professional_analysis` / `decision_checklist` 插件、4 段合成书评测集、两本书 dogfood、接入 LLM judge
 - 🔜 **M5** 真源 Skill 安装、`evals/baseline.json` 出实测数、跨书能力合并
 
-**如实标注的边界**（本项目不夸大）：S4 当前为确定性抽取器；LLM judge 未接入（`groundedness` / V2 / V3 为 `null`）；`coverage_score` 0.667 未达 0.85 目标；`professional_analysis` 与 `decision_checklist` 尚在 M4。
+**如实标注的边界**（本项目不夸大）：LLM judge 未接入（`groundedness` / V2 / V3 仍为 `null`，只报告不设硬门）；`professional_analysis` 与 `decision_checklist` 尚在 M4；真实书稿批 `coverage_score` 已达 1.00，早期合成书批过程值 0.667 如实留档。
 
 ---
 
