@@ -504,5 +504,51 @@ class TestOutputContractRendering(unittest.TestCase):
         self.assertIn("+ plugin_files + renderer_files", src)
 
 
+class TestP2Cleanup(unittest.TestCase):
+    """P2 清尾回归：漏字、单位命名、冒烟用例覆盖、intent_map 死元数据。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from bookleme.pipeline import Pipeline
+        cfg = load_run_config()
+        pipe = Pipeline(cfg, load_router_config())
+        cls.summary = pipe.run([str(SYNTHETIC)], run_id="unittest-p2-cleanup",
+                               title="人生设计练习册（合成）")
+
+    def _artifact(self, short):
+        return [Path(a) for a in self.summary["artifacts"] if short in Path(a).name][0]
+
+    def test_step3_typo_fixed_in_both_engines(self):
+        for short in ("bs", "kp"):
+            md = (self._artifact(short) / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("每条判断都要带上出处", md, f"{short} 漏字未修")
+            self.assertNotIn("带上处。", md, f"{short} 仍残留漏字")
+
+    def test_char_unit_naming(self):
+        from bookleme.plugins import load_plugins
+        registry, _ = load_plugins()
+        coach = registry["coach_dialogue"]
+        self.assertIn("$min_chars - $max_chars", coach.skill_template)
+        self.assertNotIn("$min_tokens", coach.skill_template)
+        self.assertEqual(coach.output_contract["min_chars"], 8000)
+        self.assertEqual(coach.output_contract["max_chars"], 12000)
+        for p in registry.values():
+            self.assertNotIn("min_tokens", p.output_contract, f"{p.genre_id} 仍用 tokens 命名")
+        bs_md = (self._artifact("bs") / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("字数区间：8000 - 12000 字。", bs_md)
+
+    def test_smoke_cases_cover_resume_and_long_dialogue(self):
+        smoke = (self._artifact("bs") / "evals/smoke.md").read_text(encoding="utf-8")
+        self.assertIn("coach-resume", smoke, "冒烟缺中断续聊用例")
+        self.assertIn("coach-long-dialogue", smoke, "冒烟缺长对话纪律用例")
+
+    def test_no_stale_intent_map(self):
+        from bookleme.plugins import load_plugins
+        registry, _ = load_plugins()
+        for gid, p in registry.items():
+            self.assertNotIn("intent_map", p.routing_rules,
+                             f"{gid} 仍有死元数据 intent_map（曾错指 framework-04）")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

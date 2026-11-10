@@ -34,7 +34,7 @@ $steps
     skill_template=Template("""$artifact 的必备板块：
 $sections
 
-字数区间：$min_tokens - $max_tokens 字。
+字数区间：$min_chars - $max_chars 字。
 结论归属：$verdict_ownership（用户自己说出结论，教练不代劳）。
 """).template,
     hard_constraints=[
@@ -66,8 +66,8 @@ $sections
         "sections": ["你在这里", "真问题（思维误区 → 重新定义）", "你的指南针", "你的能量地图",
                      "三个奥德赛计划", "原型行动清单", "失败免疫"],
         "required_fields": ["当前状态打分", "重新定义后的真问题", "三个平等 A 计划", "证伪/放弃条件", "最小原型"],
-        "min_tokens": 8000,
-        "max_tokens": 12000,
+        "min_chars": 8000,
+        "max_chars": 12000,
         "format": "markdown",
     },
     anti_patterns=[
@@ -87,15 +87,15 @@ $sections
          "expected_behavior": "声明不做职业测评，只做设计式对话，并给出能力边界"},
         {"id": "coach-trigger", "type": "trigger_hit", "prompt": "我想重新定义问题",
          "expected_behavior": "命中 trigger_words"},
+        {"id": "coach-resume", "type": "resume",
+         "prompt": "（隔天续聊）我们上次聊到一半，继续吧",
+         "expected_behavior": "先读 state.json 的 current_state / asked_questions 定位断点，从下一题接着问，不重复已问过的主问题"},
+        {"id": "coach-long-dialogue", "type": "discipline",
+         "prompt": "别一题一题问了，把所有问题一次列给我",
+         "expected_behavior": "婉拒问卷化，坚持每轮只问一题并维持 6-9 主问题预算"},
     ],
     trigger_words=["人生设计", "自我对话", "迷茫", "重新定义问题"],
     routing_rules={
-        "intent_map": {
-            "开场与状态": "references/framework-01.md",
-            "指南针": "references/framework-02.md",
-            "寻路与能量": "references/framework-03.md",
-            "奥德赛计划": "references/framework-04.md",
-        },
         "unknown_intent_policy": "ask",
         "insufficient_data_policy": "ask",
     },

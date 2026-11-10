@@ -82,7 +82,7 @@ def _steps(plugin, ctx: dict) -> str:
         "",
         "### Step 3：按框架执行",
         "",
-        "按分片中的 1-2-3 步骤执行，并保留作者的精确命名；每条判断都要带上处。",
+        "按分片中的 1-2-3 步骤执行，并保留作者的精确命名；每条判断都要带上出处。",
         "",
         "### Step 4：产出具名结果并声明边界",
         "",
@@ -108,11 +108,15 @@ def _gotchas(plugin, ctx: dict) -> str:
 
 def _skill_md(plugin, ctx: dict) -> str:
     contract = plugin.output_contract
+    min_c = contract.get("min_chars", contract.get("min_tokens", 0))
+    max_c = contract.get("max_chars", contract.get("max_tokens", 0))
     output_seed = Template(plugin.skill_template).safe_substitute(
         artifact=contract["artifact"],
         sections=" / ".join(contract["sections"]),
-        min_tokens=contract.get("min_tokens", 0),
-        max_tokens=contract.get("max_tokens", 0),
+        min_chars=min_c,
+        max_chars=max_c,
+        min_tokens=min_c,
+        max_tokens=max_c,
         verdict_ownership=plugin.voice_calibration["verdict_ownership"],
     )
     triggers = "\n".join(f"- 当用户说「{w}」或提出相关问题时" for w in plugin.trigger_words)

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.3 (2026-11-10) — P2 清尾：全部遗留项归零
+
+- **漏字修复**：Step 3 "每条判断都要带上处" → "带上出处"（渲染层一处，双引擎产物同修）。
+- **单位命名修复**：`output_contract.min_tokens/max_tokens` → `min_chars/max_chars`
+  （渲染单位是「字」，字段名不再误导；render 层保留旧键回退，第三方插件模板不受影响）。
+- **冒烟用例补齐**：新增 `coach-resume`（中断续聊恢复：先读 state.json 定位断点、不重复已问）
+  与 `coach-long-dialogue`（拒绝问卷化、维持一次一问与 6-9 题预算）两条，覆盖此前缺的
+  续聊与长对话纪律行为。
+- **intent_map 死元数据移除**：coach_dialogue 的错位映射（奥德赛计划→framework-04，
+  真实应为 05）与 knowledge_reference 的冗余映射一并删除——无人消费且与能力序号漂移的
+  元数据不再随插件发布。
+- 回归 +4（TestP2Cleanup：漏字双引擎 / 单位命名 / 冒烟覆盖 / 死元数据清零），共 34 项全过。
+
+**至此 0.1.1/0.1.2 如实标注的未办项全部了结。** 后续批次候选（非缺陷）：V2/V3 groundedness
+真实化、professional_analysis / decision_checklist 插件、跨书合并、OCR/图表理解。
+
 ## 0.1.2 (2026-11-10) — P1 四项：契约渲染收口 + 提问顺序落盘
 
 - **required_fields 死契约修复**：`output_contract.required_fields` 渲染进 SKILL.md「必备字段（缺一不可）」，

@@ -45,8 +45,8 @@ $sections
         "file_name": "answer.md",
         "sections": ["命中的框架", "带出处的规则", "执行步骤", "不适用边界", "出处清单"],
         "required_fields": ["框架名", "出处", "可执行步骤", "边界"],
-        "min_tokens": 300,
-        "max_tokens": 2000,
+        "min_chars": 300,
+        "max_chars": 2000,
         "format": "markdown",
     },
     anti_patterns=[
@@ -67,7 +67,6 @@ $sections
     ],
     trigger_words=["查阅框架", "书中怎么讲", "术语出处", "章节速查"],
     routing_rules={
-        "intent_map": {"术语": "references/topic-index.md", "框架": "references/topic-index.md"},
         "unknown_intent_policy": "decline",
         "insufficient_data_policy": "ask",
     },
