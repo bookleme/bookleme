@@ -11,7 +11,7 @@ from bookleme.plugins.base import GenrePlugin
 PLUGIN = GenrePlugin(
     genre_id="coach_dialogue",
     display_name_zh="自我对话教练",
-    version="0.1.0",
+    version="1.0.0",
     router_rules={"source": "configs/router.json", "note": "权重外置，插件不硬编码"},
     capability_schema={"required": ["title", "R_quote", "A2_user_trigger", "A3_steps", "B_not_applicable"]},
     section_template=Template("""## 何时读本文件

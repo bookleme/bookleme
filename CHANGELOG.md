@@ -1,5 +1,79 @@
 # Changelog
 
+## 1.0.0 (2026-11-13) — 首个正式版：LLM 抽取器 + 真实书稿实战
+
+收敛 0.1.x 三个补丁轮的全部遗留项，并补上两件此前未入账的大事：S4 LLM 抽取器落地、
+两本真实书稿端到端 dogfood。至此「确定性抽取 → LLM 抽取」三级调度、逐字引文终身回验、
+双引擎插件体系全部成形，以 1.0.0 作为首个稳定版本发布（MIT，github.com/bookleme/bookleme）。
+
+### 亮点
+
+- **S4 接入 LLM 抽取器**（`443360e`）：OpenAI 兼容 chat/completions 适配器（stdlib
+  urllib，零第三方依赖），环境变量 `BOOKLEME_LLM_BASE_URL/API_KEY/MODEL/TIMEOUT` 配置，
+  缺配置自动回退确定性抽取器、流水线零中断；`deterministic-markup → llm → heuristic`
+  三级调度。**引文终身逐字回验**：`_locate_quote_verbatim()` 把模型引文定位回原文——
+  精确 find 失败则空白不敏感定位后切原文子串，引文恒为原文切片、绝不收模型的空白版本，
+  不可回溯时兜底确定性首句。每次真实 HTTP 计 `llm_calls`，`model_fingerprint =
+  sha256(model + prompt_version)` 绑定 prompt 版本防换模型漂移；版本化 prompt
+  `llm/prompts/capability_extract_v1.md`（R_quote 强制逐字 8-24 字）。部分模型
+  （kimi-k3）仅接受 `temperature=1`，遇 400 温度错误自动重试一次。可信度三级：
+  S(0.9 markup) / B(0.7 llm) / C(0.4 heuristic)。
+- **真实书稿实战暴露并修复 3 处合成样例测不出的缺陷**（`40b32f1`）：① S2 目录污染——
+  目录页「第N章」行被标题正则误判为段，新增 `_merge_duplicate_headings()` 同名标题
+  合并、被删段区间并入后继段、序言并入首段；② S4 引文非逐字——`re.sub(r'\s+',' ')`
+  折叠换行导致引文不再是原文子串，重写为 `_first_sentence_quote()` 纯切片引文 +
+  从句边界截断（16 字预算 + 8 边界窗口，消「有这样一」式半句），并防引文取自目录行；
+  ③ S2 缓存不失效——`s2_hash` 纳入分段源码。真实书稿实测：14/14 能力 verified、
+  `citation_resolution=1.0`、`verbatim_violation=0`、`coverage=1.0`、版权六门全过。
+- **P0–P2 三轮修复，34 项回归全过**（`5a07430`/`1d01426`/`12cf1ea`）：P0 续聊断链
+  （每轮写 `state.json` + 运行期路径约定 `~/.bookleme/sessions`，9 轮真实教练会话实测）；
+  P1 契约渲染收口（`required_fields`/`file_name` 落盘、session-map 提问顺序八阶段、
+  S6 缓存纳入渲染器源码）；P2 清尾（漏字/单位命名/冒烟用例/死元数据归零）。
+- **开源发布与品牌**（`2ae14b0`…`df1e1b9`）：MIT License、GitHub Actions CI 绿、
+  README 中英双版（banner/徽章/导航锚点/三方对比）、公开前隐私清理（源码路径参数化
+  `BOOKLEME_SKILLS_ROOT`/`BOOKLEME_CLAUDE_SKILLS`、零绝对路径/邮箱/凭证入库）。
+- **两本真实书稿 dogfood**：《斯坦福大学人生设计课》（209 页 PDF）双引擎编译 +
+  9 轮真实教练对话回归；《这本书可能救你的命》（273 页 PDF）双引擎编译
+  （`knowledge_pack` + `behavior_skill`），`citation_resolution=1.0`、
+  `shingle_overlap=0.0008`、版权六门全过。
+
+### Added
+- S4 LLM 抽取器与版本化 prompt（`443360e`）
+- `coach-resume`（中断续聊恢复）与 `coach-long-dialogue`（长对话纪律）冒烟用例（`12cf1ea`）
+- session-map：完整会话八阶段提问序 + 6-9 题预算 + 断点恢复对照（`1d01426`）
+- CI / License / Python / 零依赖徽章（`e2a8d84`）
+
+### Fixed
+- 续聊断链：SKILL.md 指示每轮写 `state.json`，state 目录改运行期可解析（`5a07430`）
+- 输出格式双 schema 矛盾 → 统一「正文 + 元信息附录」双层（`5a07430`）
+- `output_contract.required_fields` 与 `file_name` 交付约定不再被静默丢弃（`1d01426`）
+- S6 缓存哈希纳入 `render/*.py` 源码，改渲染器不再命中陈旧缓存（`1d01426`）
+- 真实书稿三缺陷：目录污染 / 引文非逐字 / S2 缓存不失效（`40b32f1`）
+- 渲染触发语双重嵌套（`40b32f1`）
+- Step 3「带上处」漏字、`min_tokens`→`min_chars` 单位命名、intent_map 死元数据（`12cf1ea`）
+- LICENSE 精简为标准 MIT 文本以便 GitHub licensee 识别（`2bcfe3f`）
+
+### Documentation
+- README 中英双版 + 去折叠排版升级，忠实度表换真实书稿批实测值（`7aa923a`/`df1e1b9`）
+- NOTICE 补插图说明与同名项目区分（`2bcfe3f`/`7aa923a`）
+
+### Notes on selected changes
+
+**引文终身逐字回验** —— LLM 抽取器最危险的失败模式不是"没抽出来"，而是"抽出来的引文
+不是原文"（缩进/换行/标点被模型规范化），下游逐字校验会全灭。`_locate_quote_verbatim()`
+的策略是：**永远从原文切片，永远不用模型给的字符串**——先精确 find，失败则两侧空白
+不敏感定位，再取原文子串；连兜底的启发式首句也是原文切片。配合 S5 的
+`verbatim_violation` 指标，引文从生成到消费全程可回溯。
+
+**三级调度与诚实标注** —— `deterministic-markup → llm → heuristic` 按可用性降级，
+任何一级失败都不中断流水线；`llm_calls` 与 `model_fingerprint` 进 metrics，未调用 LLM
+时如实记 0/`null`，不伪造数字。`groundedness`/V2/V3 仍为 heuristic（LLM judge 未接入），
+`coverage_score` 实测值如实保留（合成批 0.667 未达 0.85 目标、真实书稿批 1.00 达标）。
+
+**examples/ 的 provenance 仍标注生成时的 0.1.x 版本**——它们是 0.1.x 时期真实生成的
+样例快照，属历史证据，1.0.0 未重跑刷新，故 `references/provenance.md` 中的
+「生成引擎：BookLeme 0.1.0」为当时的实况记录。
+
 ## 0.1.3 (2026-11-10) — P2 清尾：全部遗留项归零
 
 - **漏字修复**：Step 3 "每条判断都要带上处" → "带上出处"（渲染层一处，双引擎产物同修）。

@@ -1,6 +1,6 @@
 [project]
 name = "bookleme"
-version = "0.1.0"
+version = "1.0.0"
 description = "Compile a book into installable agent skills: knowledge packs and behavior skills."
 readme = "README.md"
 license = { text = "MIT" }
