@@ -1,12 +1,14 @@
 """A small, dependency-free subset of JSON Schema validation.
 
 Supports: type, required, properties, items, additionalProperties(schema),
-enum, minimum/maximum, minItems/maxItems. The schema files themselves remain
-standard draft-07 JSON Schema, so `jsonschema` can validate them when available.
+enum, minimum/maximum, minItems/maxItems, minLength/maxLength, pattern.
+The schema files themselves remain standard draft-07 JSON Schema, so
+`jsonschema` can validate them when available.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 _TYPES = {
@@ -45,6 +47,14 @@ def validate(instance: Any, schema: dict, path: str = "$") -> list[str]:
 
     if "enum" in schema and instance not in schema["enum"]:
         errors.append(f"{path}: {instance!r} not in enum {schema['enum']!r}")
+
+    if isinstance(instance, str):
+        if "minLength" in schema and len(instance) < schema["minLength"]:
+            errors.append(f"{path}: shorter than minLength {schema['minLength']}")
+        if "maxLength" in schema and len(instance) > schema["maxLength"]:
+            errors.append(f"{path}: longer than maxLength {schema['maxLength']}")
+        if "pattern" in schema and not re.search(schema["pattern"], instance):
+            errors.append(f"{path}: {instance!r} does not match pattern {schema['pattern']!r}")
 
     if isinstance(instance, dict):
         for key in schema.get("required", []):

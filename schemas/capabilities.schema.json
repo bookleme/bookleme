@@ -17,6 +17,11 @@
           "title": { "type": "string" },
           "genre_tags": { "type": "array", "items": { "type": "string" } },
           "engine_targets": { "type": "array", "items": { "type": "string" } },
+          "figure_refs": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^FIG-[0-9]{3}$" },
+            "description": "2.0：图注落在本卡 char 区间内时挂接的图 ID"
+          },
           "source_id": { "type": "string" },
           "span": {
             "type": "object",

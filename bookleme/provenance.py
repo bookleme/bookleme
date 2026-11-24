@@ -60,3 +60,15 @@ def decide_distribution(user_rights: str, all_hard_checks_passed: bool) -> tuple
     if user_rights == "public_domain":
         return "publishable", "公版书且硬检查通过（默认仍保持 private）"
     return "private", "自有/授权书籍生成的衍生笔记默认私有；公开需启动前显式确认"
+
+
+def figure_distribution_block(user_rights: str, figures_embedded: int) -> str | None:
+    """2.0 图片分发政策（纯函数）：返回阻断原因，None 表示放行。
+
+    原文图片随衍生笔记公开 = 复制传播原图本体，比文本引文的性质更重：
+    非自有/公版一律阻断公开分发；私有安装不受影响。
+    """
+    if figures_embedded and user_rights not in ("owned", "public_domain"):
+        return (f"公开分发被阻断：产物含 {figures_embedded} 张原文图片资产，"
+                f"user_rights={user_rights} 非自有/公版，原图不得随衍生笔记公开分发")
+    return None

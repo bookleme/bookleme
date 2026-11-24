@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme figures.json (2.0)",
+  "type": "object",
+  "required": ["schema_version", "book_sha256", "figures"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "book_sha256": { "type": "string" },
+    "figures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["figure_id", "source_id", "kind", "caption", "image_file"],
+        "properties": {
+          "figure_id": { "type": "string", "pattern": "^FIG-[0-9]{3}$" },
+          "source_id": { "type": "string" },
+          "page": { "type": ["integer", "null"] },
+          "kind": { "type": "string", "enum": ["figure", "table"] },
+          "caption": { "type": "string", "maxLength": 150 },
+          "char_start": { "type": ["integer", "null"] },
+          "char_end": { "type": ["integer", "null"] },
+          "image_file": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

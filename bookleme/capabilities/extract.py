@@ -261,3 +261,29 @@ def extract_capabilities(full_text: str, segments: list[dict], config: dict,
         "extractor": extractor,
         "capabilities": caps,
     }
+
+
+def attach_figure_refs(caps: dict, figures: list[dict], max_distance: int = 2000) -> None:
+    """2.0 图挂接：最近能力卡（窗口内）——图注紧邻的讨论即配套对象。
+
+    为什么不是「图注落在卡片 char 区间内」：能力卡 span 是引文句（十几字），
+    图注是另一段文本，两者天然不重叠，区间包含永远挂不上（paper-2.0 实测教训）。
+    规则：每个已锚定图挂到 char 距离最近的能力卡（等距偏向前方），距离超
+    max_distance 则不挂（如实留空，不硬凑）。定位不到的图不挂任何卡。
+    就地修改 caps；figure_refs 按图序号升序。
+    """
+    for cap in caps["capabilities"]:
+        cap["figure_refs"] = []
+    anchors = [(c, c["span"]["char_start"]) for c in caps["capabilities"]
+               if isinstance(c["span"].get("char_start"), int)]
+    for f in sorted(figures, key=lambda x: x["figure_id"]):
+        fpos = f.get("char_start")
+        if fpos is None or not anchors:
+            continue
+        best, best_d = None, None
+        for cap, pos in anchors:
+            d = abs(pos - fpos)
+            if best_d is None or d < best_d or (d == best_d and pos <= fpos):
+                best, best_d = cap, d
+        if best is not None and best_d <= max_distance:
+            best["figure_refs"].append(f["figure_id"])

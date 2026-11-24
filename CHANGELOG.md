@@ -1,5 +1,68 @@
 # Changelog
 
+## 2.0.0 (2026-11-24) — 多源知识编译：网页 + 论文 + 图表资产
+
+输入从「一本书」扩展到「书 + 网页 + 论文」，且**图必须用起来**：原文/原网页的图示
+被提取为产物资产并挂接到对应能力卡。真实的图解博客与 arXiv 论文端到端实测通过。
+
+### 亮点
+
+- **`bookleme fetch <url>`（新子命令）**：抓取公开网页/论文落盘 `sources/public/`
+  （版权内容不入库，.gitignore 全覆盖）。HTML → 正文（复用零依赖 html 提取器）+
+  页面图片下载（`<figure>/<figcaption>/<img alt>` 语义，magic bytes 识别格式，
+  24 张/2MB 上限）；PDF → 实体文件 + sidecar 元数据（url/tier/license_note/
+  retrieved_at）。stdlib urllib（自动走 http_proxy），零第三方依赖。
+- **图表提取（`extract/figures.py`）**：图注识别（图N/表N/Figure N/Table N，
+  纯函数可测）+ pypdf 逐页栅格图提取；同页文档序配对（图注↔位图），配不上的
+  如实落「仅图注」/「仅位图」。**图注逐字锚定**到全局归一化语料（char 级可溯），
+  定位不到置 `null` 不伪造。矢量图（多数 LaTeX 论文）诚实降级为 caption-only。
+- **图挂接到能力卡**：最近能力卡（窗口 2000 字符内）——图注紧邻的讨论即配套对象。
+  （实测教训：能力卡 span 是引文句、图注是另一段文本，「区间包含」永远挂不上。）
+  渲染「配套图示」块 + `assets/figures/` 全量图片资产 + `references/figures-index.md`
+  锚定状态索引。**图注原文不复制入产物**（版权纪律：22 条图注全量入产物会把引文比
+  推到 13%，被版权门正确拦下）；逐字图注存共享 IR `figures.json`。
+- **图片分发政策（版权门）**：原文图片随衍生笔记公开 = 复制传播原图，比文本引文
+  性质更重——非自有/公版一律阻断公开分发（`figure_distribution_block` 纯函数，
+  私有安装不受影响）。版权门如实计数图片资产与图注引文比。
+- **多源合编**：`sources/public/` 工作集自动入编译，与 `--input` 按 sha256 去重
+  （防同一文件重复计源）。实测：arXiv 论文 PDF + 图解博客 HTML 合编，
+  35 图（27 位图进产物）、auto 路由单引擎、版权六门全过。
+- **Schema**：新增 `figures.schema.json`；能力卡加可选 `figure_refs`；
+  内置子集校验器补 `pattern/minLength/maxLength` 执法（此前 Schema 写了但没执行）。
+- **dogfood 实测（arXiv 1706.03762 + jalammar 图解博客）**：
+  论文批 22 图（6 位图/16 仅图注，20 锚定），引文比 0.017；多源批 35 图（27 位图），
+  引文比 0.016、shingle 0.0043，`all_passed=True`。图挂接语义正确
+  （Transformer 架构图 → 「3.1 Encoder and Decoder」卡）。
+
+### Added
+- `bookleme fetch` 子命令与 `sources/public/` 公开源工作集（文件型 + 文本型）
+- `extract/figures.py`：图注识别 / PDF 栅格图提取 / 网页图收编 / 逐字锚定
+- `figures.json` 共享 IR + `schemas/figures.schema.json`
+- 能力卡 `figure_refs`、产物 `assets/figures/`、`references/figures-index.md`
+- 「配套图示」渲染块（不复制图注原文）
+- `figure_distribution_block` 图片分发政策（纯函数）
+- 回归测试 +9（图注定位/锚定/挂接/渲染/抓取 mock/版权门/分发政策/schema）
+
+### Fixed
+- S0 多源去重：`--input` 与 `sources/public/` 同一文件按 sha256 去重，防重复计源
+- schema_check 补齐 `pattern/minLength/maxLength`（Schema 声明与执法不一致）
+
+### Notes on selected changes
+
+**图注为什么不复制进产物** —— dogfood 实测：22 条图注逐字渲染把引文比推到 13%
+（上限 3%），版权门正确拦截。图注是原文文本，全量列出就是复制。定稿口径：
+图片资产（图本体）全量交付、图注原文只存共享 IR `figures.json`（逐字可溯），
+产物只留元数据（ID/类型/锚定状态/页码/资产路径）与回读指引——「图用起来」
+指图本身可用（打开即看），不是把图注抄进笔记。
+
+**矢量图的诚实降级** —— arXiv 论文多为 LaTeX 矢量图，pypdf 提不到栅格位图，
+如实落「仅图注」（caption-only），绝不截图伪造、绝不留空充数。实测论文 16/22
+为矢量图；网页图（PNG/JPG）则全量提取（博客 24 张）。
+
+**已知不完美（如实记录）**：图注正则会把「Table 2 summarizes...」式正文句
+误判为图注（论文批 22 条中约 1-2 条）；网页 alt-only 图片无锚定位（不挂卡）。
+均不影响交付正确性，留待后续批次收紧。
+
 ## 1.0.0 (2026-11-13) — 首个正式版：LLM 抽取器 + 真实书稿实战
 
 收敛 0.1.x 三个补丁轮的全部遗留项，并补上两件此前未入账的大事：S4 LLM 抽取器落地、

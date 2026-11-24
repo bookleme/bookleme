@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "1.0.0")
+        self.assertEqual(__version__, "2.0.0")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -548,6 +548,161 @@ class TestP2Cleanup(unittest.TestCase):
         for gid, p in registry.items():
             self.assertNotIn("intent_map", p.routing_rules,
                              f"{gid} 仍有死元数据 intent_map（曾错指 framework-04）")
+
+
+class TestFiguresAndFetch(unittest.TestCase):
+    """2.0：网页/论文抓取 + 图表提取/挂接/渲染 + 图片分发政策。"""
+
+    def test_caption_detection_scoped_and_typed(self):
+        from bookleme.extract.figures import find_figure_captions
+        text = ("前言正文不许误判\n图 1 本文方法总体结构\n中间正文\n"
+                "Figure 2: The model architecture\n更多正文\n表 3 三组对比结果\n"
+                "Table 4: Results overview\n正文")
+        caps = find_figure_captions(text)
+        self.assertEqual(len(caps), 4)
+        self.assertEqual([c["kind"] for c in caps], ["figure", "figure", "table", "table"])
+        self.assertTrue(caps[0]["caption"].startswith("图 1"))
+        self.assertFalse(any("前言" in c["caption"] for c in caps))
+
+    def test_locate_captions_anchors_verbatim_or_null(self):
+        from bookleme.extract.figures import locate_captions
+        entries = [
+            {"figure_id": "FIG-001", "caption": "图 1 本文方法总体结构", "kind": "figure"},
+            {"figure_id": "FIG-002", "caption": "图 9 并不存在的图注", "kind": "figure"},
+        ]
+        full = "开头\n图 1 本文方法总体结构\n结尾"
+        locate_captions(entries, full)
+        self.assertEqual(entries[0]["char_start"], 3)
+        self.assertIsNone(entries[1]["char_start"], "定位不到必须如实置 null，不得伪造位置")
+
+    def test_html_figure_entries_from_fetch_record(self):
+        from bookleme.extract.figures import html_figure_entries
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            (base / "images").mkdir()
+            (base / "images" / "x.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+            rec = {"images": [{"file": "images/x.png", "caption": "图 2 数据集样例", "alt": ""}]}
+            entries = html_figure_entries(rec, base)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["caption"], "图 2 数据集样例")
+        self.assertIsNotNone(entries[0]["image"])
+
+    def test_attach_figure_refs_nearest_cap_within_window(self):
+        from bookleme.capabilities import attach_figure_refs
+        caps = {"capabilities": [
+            {"capability_id": "C1", "span": {"char_start": 100, "char_end": 120}},
+            {"capability_id": "C2", "span": {"char_start": 5000, "char_end": 5020}},
+        ]}
+        figures = [
+            {"figure_id": "FIG-001", "char_start": 300},    # 距 C1 200 → C1
+            {"figure_id": "FIG-002", "char_start": 5100},   # 距 C2 100 → C2
+            {"figure_id": "FIG-003", "char_start": 9000},   # 距最近 4000 > 2000 → 不挂
+            {"figure_id": "FIG-004", "char_start": None},   # 未锚定 → 不挂
+        ]
+        attach_figure_refs(caps, figures)
+        self.assertEqual(caps["capabilities"][0]["figure_refs"], ["FIG-001"])
+        self.assertEqual(caps["capabilities"][1]["figure_refs"], ["FIG-002"])
+        # 超窗口与未锚定的图如实不挂，不硬凑
+        self.assertNotIn("FIG-003", caps["capabilities"][0]["figure_refs"] + caps["capabilities"][1]["figure_refs"])
+        self.assertNotIn("FIG-004", caps["capabilities"][0]["figure_refs"] + caps["capabilities"][1]["figure_refs"])
+
+    def test_attach_prefers_nearest_and_is_deterministic(self):
+        from bookleme.capabilities import attach_figure_refs
+        caps = {"capabilities": [
+            {"capability_id": "C1", "span": {"char_start": 100, "char_end": 110}},
+            {"capability_id": "C2", "span": {"char_start": 400, "char_end": 410}},
+        ]}
+        figures = [
+            {"figure_id": "FIG-002", "char_start": 300},  # 等距：偏向前方（C2 在前？不，C2 距离 100 < C1 200）
+            {"figure_id": "FIG-001", "char_start": 250},  # 距 C1 150、距 C2 150 等距 → 前方 C1
+        ]
+        attach_figure_refs(caps, figures)
+        self.assertEqual(caps["capabilities"][0]["figure_refs"], ["FIG-001"])
+        self.assertEqual(caps["capabilities"][1]["figure_refs"], ["FIG-002"])
+
+    def test_fetch_html_and_pdf_with_mocked_network(self):
+        from unittest import mock
+        import bookleme.fetch as fetch
+        html = (b'<html><body><p>intro</p><figure><img src="/a.png" alt="A">'
+                b'<figcaption>figcap</figcaption></figure></body></html>')
+        png = b"\x89PNG\r\n\x1a\n" + b"0" * 200
+
+        def fake_html(url, timeout=30):
+            return (png, "image/png") if url.endswith(".png") else (html, "text/html; charset=utf-8")
+
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(fetch, "_download", fake_html):
+            rec = fetch.fetch_url("https://example.com/paper", out_dir=Path(td))
+            self.assertEqual(rec["kind"], "html")
+            self.assertEqual(len(rec["images"]), 1)
+            self.assertEqual(rec["images"][0]["caption"], "figcap")
+            self.assertTrue((Path(td) / rec["images"][0]["file"]).is_file())
+            self.assertTrue((Path(td) / "example.com-paper.json").is_file())
+
+        def fake_pdf(url, timeout=30):
+            return (b"%PDF-1.4 fake body", "application/pdf")
+
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(fetch, "_download", fake_pdf):
+            rec = fetch.fetch_url("https://arxiv.org/pdf/1706.03762v7", out_dir=Path(td), name="attn")
+            self.assertEqual(rec["kind"], "pdf")
+            self.assertEqual(rec["file"], "attn.pdf")
+            self.assertTrue((Path(td) / "attn.pdf").read_bytes().startswith(b"%PDF"))
+            self.assertTrue((Path(td) / "attn.json").is_file())
+
+    def test_framework_md_renders_figure_block_without_fabrication(self):
+        from bookleme.render.skill import _framework_md
+        from bookleme.plugins.builtin.coach_dialogue import PLUGIN
+        cap = {
+            "title": "T", "source_id": "SRC-001",
+            "span": {"segment_id": "seg-001", "char_start": 0, "char_end": 10},
+            "ria": {"R_quote": "q", "I_rephrase": "i", "A1_author_case": "a",
+                    "A2_user_trigger": "t", "A3_steps": ["s"], "B_not_applicable": "b"},
+            "confidence": {"tier": "S"},
+            "figure_refs": ["FIG-001", "FIG-002"],
+        }
+        figs = {
+            "FIG-001": {"figure_id": "FIG-001", "caption": "图 1 方法结构", "kind": "figure",
+                        "char_start": 5, "image_file": "cache/x/figures/FIG-001.png",
+                        "page": 1, "source_id": "SRC-001"},
+            "FIG-002": {"figure_id": "FIG-002", "caption": "图 2 未锚定图注", "kind": "figure",
+                        "char_start": None, "image_file": None, "page": 2, "source_id": "SRC-001"},
+        }
+        out = _framework_md(PLUGIN, cap, 1, figs)
+        self.assertIn("配套图示", out)
+        self.assertIn("assets/figures/FIG-001.png", out)
+        self.assertIn("FIG-001", out)
+        self.assertNotIn("图 1 方法结构", out, "图注原文不得复制入产物（版权纪律）")
+        self.assertNotIn("图 2 未锚定图注", out, "未锚定图注更不得复述")
+
+    def test_copyright_gate_reports_figures_but_does_not_fail_text_checks(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            (d / "SKILL.md").write_text("# x\n" + "内容" * 10, encoding="utf-8")
+            (d / "assets" / "figures").mkdir(parents=True)
+            (d / "assets" / "figures" / "FIG-001.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+            gate = run_copyright_gate(d, "全文" * 100, [], load_run_config(),
+                                      figures=[{"figure_id": "FIG-001"}])
+        self.assertEqual(gate["figures_report"]["figure_assets_embedded"], 1)
+        self.assertEqual(gate["figures_report"]["figures_declared"], 1)
+        self.assertTrue(gate["passed"], "图片资产不得触发文本硬门失败")
+
+    def test_figure_distribution_policy(self):
+        from bookleme.provenance import figure_distribution_block
+        self.assertIsNotNone(figure_distribution_block("licensed", 3), "非自有/公版 + 有图 → 必须阻断公开")
+        self.assertIsNotNone(figure_distribution_block("unknown", 1))
+        self.assertIsNone(figure_distribution_block("owned", 3))
+        self.assertIsNone(figure_distribution_block("public_domain", 2))
+        self.assertIsNone(figure_distribution_block("licensed", 0), "无图不阻断")
+
+    def test_figures_schema_validates(self):
+        obj = {"schema_version": "2.0", "book_sha256": "x", "figures": [{
+            "figure_id": "FIG-001", "source_id": "SRC-001", "page": 1,
+            "kind": "figure", "caption": "图 1 方法结构",
+            "char_start": 10, "char_end": 18, "image_file": "cache/x/figures/FIG-001.png"}]}
+        errors = schema_validate(obj, load_json(SCHEMA_DIR / "figures.schema.json"))
+        self.assertEqual(errors, [])
+        bad = json.loads(json.dumps(obj))
+        bad["figures"][0]["figure_id"] = "XX-1"
+        self.assertTrue(schema_validate(bad, load_json(SCHEMA_DIR / "figures.schema.json")))
 
 
 if __name__ == "__main__":
