@@ -9,7 +9,8 @@ from ..fidelity.overlap import max_contiguous_copy, shingle_jaccard, total_quote
 _FORBIDDEN_NAMES = {"full_text.txt", "char_map.json"}
 
 
-def run_copyright_gate(skill_dir: Path, full_text: str, quotes: list[str], config: dict) -> dict:
+def run_copyright_gate(skill_dir: Path, full_text: str, quotes: list[str], config: dict,
+                       figures: list[dict] | None = None) -> dict:
     skill_dir = Path(skill_dir)
     texts: dict[str, str] = {}
     for path in sorted(skill_dir.rglob("*")):
@@ -44,10 +45,19 @@ def run_copyright_gate(skill_dir: Path, full_text: str, quotes: list[str], confi
         has_merged_source_block, False)
 
     passed = all(c["passed"] for c in checks)
+    fig_assets = sorted(p.name for p in skill_dir.rglob("*")
+                        if p.is_file() and "figures" in p.parts and p.suffix.lower() in
+                        {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"})
     return {
         "passed": passed,
         "checks": checks,
         "artifact_chars": len(artifact),
         "quote_chars_present": sum(len(q) for q in present),
+        "figures_report": {
+            "figure_assets_embedded": len(fig_assets),
+            "figures_declared": len(figures or []),
+            "note": ("图片资产不计入文本硬门（6 条管文本复制）；原图公开分发受 "
+                     "distribution_decision.json 的图片政策约束：非自有/公版禁止公开。"),
+        },
         "note": "任一失败 → S7 abort，产物不安装、不发布。",
     }

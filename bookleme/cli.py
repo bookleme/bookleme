@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .config import DEFAULT_RUN_CONFIG, OUT_DIR, ROUTER_CONFIG, load_json, load_router_config, load_run_config
+from .config import DEFAULT_RUN_CONFIG, OUT_DIR, ROOT, ROUTER_CONFIG, load_json, load_router_config, load_run_config
 from .pipeline import Pipeline, PipelineError
 from .plugins.validator import validate_plugin
 from .validate import lint_skill_dir, validate_skill
@@ -46,6 +46,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     val = sub.add_parser("validate", help="校验一个 skill 产物目录")
     val.add_argument("skill_dir")
+
+    fet = sub.add_parser("fetch", help="抓取公开网页/论文到 sources/public（2.0）")
+    fet.add_argument("url", help="http(s) 地址（网页或 PDF 论文）")
+    fet.add_argument("--name", default=None, help="自定义文件名（slug）")
+    fet.add_argument("--tier", choices=["A", "B", "C"], default="B",
+                     help="来源分级：B=公开网络（默认）/C=聚合转载")
+    fet.add_argument("--license-note", default="", help="授权说明（自行核实后填写）")
+    fet.add_argument("--no-images", action="store_true", help="不下载页面图片")
 
     ev = sub.add_parser("eval", help="查看某次 run 的指标")
     ev.add_argument("--run-id", required=True)
@@ -130,6 +138,21 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
+    if args.command == "fetch":
+        from .fetch import fetch_url
+        try:
+            record = fetch_url(args.url, name=args.name, tier=args.tier,
+                               license_note=args.license_note,
+                               save_images=not args.no_images)
+        except Exception as exc:
+            print(f"[ERROR] 抓取失败：{exc}", file=sys.stderr)
+            return 1
+        summary = {k: record.get(k, "") for k in ("kind", "url", "tier", "retrieved_at", "bytes")}
+        summary["images"] = len(record.get("images", []))
+        summary["content_chars"] = len(record.get("content", ""))
+        summary["record"] = str(ROOT / "sources" / "public")
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
     if args.command == "plugin" and args.plugin_cmd == "validate":
         return _plugin_validate(args.file)
     if args.command == "validate":

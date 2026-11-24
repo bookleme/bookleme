@@ -27,3 +27,14 @@ evals/cases/user_books/*
 state.json
 progress.md
 ITERATION_LOG.md
+
+# 抓取的公开资料（网页/论文/图片）：版权内容不入库，仅本地使用
+sources/public/*
+!sources/public/.gitkeep
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+!docs/assets/**
+!.github/**/*.png

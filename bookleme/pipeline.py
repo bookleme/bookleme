@@ -25,15 +25,16 @@ from .config import (
 from .hashing import sha256_file, sha256_text, stage_input_hash
 from .state import StateStore
 from .extract import SUPPORTED_EXTENSIONS, extract_source, merge
+from .extract.figures import extract_pdf_figures, html_figure_entries, locate_captions
 from .segment import segment_text
 from .router import route
-from .capabilities import extract_capabilities
+from .capabilities import attach_figure_refs, extract_capabilities
 from .fidelity import build_claim_ledger, build_fidelity_report, verify_quotes
 from .render import build_description, render_skill
 from .plugins import load_plugins, resolve_plugin
 from .validate import lint_skill_dir, run_copyright_gate, validate_skill
 from .eval import run_smoke
-from .provenance import build_manifest
+from .provenance import build_manifest, figure_distribution_block
 from .install import install_skill
 from .schema_check import validate as schema_validate
 
@@ -43,6 +44,7 @@ SCHEMA_FOR = {
     "capabilities.json": "capabilities.schema.json",
     "capabilities_verified.json": "capabilities.schema.json",
     "claim_ledger.json": "claim_ledger.schema.json",
+    "figures.json": "figures.schema.json",
     "provenance_manifest.json": "provenance.schema.json",
     "router_result.json": "router_result.schema.json",
     "state.json": "state.schema.json",
@@ -161,21 +163,40 @@ class Pipeline:
             })
         public_dir = ROOT / "sources/public"
         public_data: dict[str, dict] = {}
+        input_shas = {s["sha256"] for s in sources}
         if public_dir.exists():
             for f in sorted(public_dir.glob("*.json")):
                 data = load_json(f)
+                if data.get("file"):
+                    # 文件型公开源先算 sha：与 --input 传入的同一文件去重，防重复计源
+                    pfile = public_dir / data["file"]
+                    if not pfile.is_file() or sha256_file(pfile) in input_shas:
+                        continue
                 sid = f"SRC-{len(sources) + 1:03d}"
                 public_data[sid] = data
-                sources.append({
-                    "source_id": sid, "origin": "public", "kind": "public-json",
-                    "path": str(f), "url": data.get("url", ""),
-                    "sha256": sha256_text(data.get("content", "")),
-                    "bytes": len(data.get("content", "").encode("utf-8")),
-                    "mime": "text/plain", "tier": data.get("tier", "B"),
-                    "license_note": data.get("license_note", ""),
-                    "retrieved_at": data.get("retrieved_at", ""),
-                    "extract_status": "pending", "figure_text_lost": False,
-                })
+                if data.get("file"):
+                    # fetch 存的文件型公开源（论文 PDF 等）：sidecar JSON 指向实体文件
+                    pfile = public_dir / data["file"]
+                    sources.append({
+                        "source_id": sid, "origin": "public", "kind": pfile.suffix.lower(),
+                        "path": str(pfile), "url": data.get("url", ""),
+                        "sha256": sha256_file(pfile), "bytes": pfile.stat().st_size,
+                        "mime": mimetypes.guess_type(pfile.name)[0] or "application/octet-stream",
+                        "tier": data.get("tier", "B"), "license_note": data.get("license_note", ""),
+                        "retrieved_at": data.get("retrieved_at", ""),
+                        "extract_status": "pending", "figure_text_lost": False,
+                    })
+                else:
+                    sources.append({
+                        "source_id": sid, "origin": "public", "kind": "public-json",
+                        "path": str(f), "url": data.get("url", ""),
+                        "sha256": sha256_text(data.get("content", "")),
+                        "bytes": len(data.get("content", "").encode("utf-8")),
+                        "mime": "text/plain", "tier": data.get("tier", "B"),
+                        "license_note": data.get("license_note", ""),
+                        "retrieved_at": data.get("retrieved_at", ""),
+                        "extract_status": "pending", "figure_text_lost": False,
+                    })
         if not sources:
             raise PipelineError("没有可用输入源")
 
@@ -210,9 +231,10 @@ class Pipeline:
             self.state.mark(run_id, "S0", s0_hash, s0_paths)
 
         # ---------------- S1 Extract ----------------
-        log("S1 Extract（确定性 ETL）")
+        log("S1 Extract（确定性 ETL + 图表提取）")
         s1_paths = [cache / "full_text.txt", cache / "char_map.json",
-                    cache / "toc.json", cache / "extraction_report.json"]
+                    cache / "toc.json", cache / "extraction_report.json",
+                    cache / "figures.json"]
         s1_hash = stage_input_hash([s0_paths[0], DEFAULT_RUN_CONFIG])
         if self.state.should_skip(run_id, "S1", s1_hash, s1_paths):
             log("S1 SKIP")
@@ -222,12 +244,14 @@ class Pipeline:
             # toc.json 落盘为 {"schema_version", "entries": [...]}，而
             # merge() 在内存里返回的是 list；两条路径必须统一，否则 S3 重算会炸。
             toc = toc_loaded.get("entries", []) if isinstance(toc_loaded, dict) else toc_loaded
+            figures_obj = load_json(s1_paths[4])
         else:
             results = []
             report_rows = []
+            fig_entries: list[dict] = []
             for src in sources:
-                if src["origin"] == "public":
-                    data = public_data.get(src["source_id"], {})
+                data = public_data.get(src["source_id"], {})
+                if src["origin"] == "public" and not data.get("file"):
                     res = {"raw_text": data.get("content", ""), "toc": [], "status": "ok",
                            "figure_text_lost": False, "ocr_used": False,
                            "source_id": src["source_id"], "path": src["path"]}
@@ -246,6 +270,15 @@ class Pipeline:
                     "ocr_used": res.get("ocr_used", False),
                     "chars": len(res.get("raw_text", "")),
                 })
+                # ---- 2.0 图表提取：PDF 栅格图+图注 / 网页下载图+figcaption ----
+                if src["kind"] == ".pdf" or src["path"].lower().endswith(".pdf"):
+                    for e in extract_pdf_figures(Path(src["path"])):
+                        e["source_id"] = src["source_id"]
+                        fig_entries.append(e)
+                elif data.get("images"):
+                    for e in html_figure_entries(data, public_dir):
+                        e["source_id"] = src["source_id"]
+                        fig_entries.append(e)
             full_text, char_map, toc = merge(results)
             self._write_text(s1_paths[0], full_text)
             self._write(s1_paths[1], {"schema_version": "1.0", "map": char_map,
@@ -254,12 +287,39 @@ class Pipeline:
             self._write(s1_paths[3], {"schema_version": "1.0", "run_id": run_id,
                                       "sources": report_rows,
                                       "llm_calls": 0}, log)
+            # 图注在全局归一化语料中定位（逐字可溯）；定位不到则 position=null，
+            # 图仍交付但如实标注未锚定，绝不伪造位置。
+            locate_captions(fig_entries, full_text)
+            fig_dir = cache / "figures"
+            figures_out = []
+            for i, e in enumerate(fig_entries, 1):
+                fid = f"FIG-{i:03d}"
+                image_file = None
+                if e.get("image"):
+                    fig_dir.mkdir(parents=True, exist_ok=True)
+                    p = fig_dir / f"{fid}.{e.get('ext') or 'bin'}"
+                    p.write_bytes(e["image"])
+                    image_file = str(p.relative_to(ROOT))
+                figures_out.append({
+                    "figure_id": fid, "source_id": e["source_id"], "page": e.get("page"),
+                    "kind": e["kind"], "caption": e["caption"],
+                    "char_start": e.get("char_start"), "char_end": e.get("char_end"),
+                    "image_file": image_file,
+                })
+            figures_obj = {"schema_version": "2.0", "book_sha256": book_sha256,
+                           "figures": figures_out}
+            self._write(s1_paths[4], figures_obj, log)
             degraded = [r for r in report_rows if r["status"] != "ok"]
             if degraded:
                 self._write(out_dir / "degradation_log.json",
                             {"schema_version": "1.0", "degraded_sources": degraded}, log)
             self.state.mark(run_id, "S1", s1_hash, s1_paths,
-                            degraded=bool(degraded), note=f"{len(degraded)} 个源降级")
+                            degraded=bool(degraded),
+                            note=f"{len(degraded)} 个源降级；figures={len(figures_out)}")
+        figures = figures_obj.get("figures", [])
+        log(f"    图表 {len(figures)} 个"
+            f"（带图 {sum(1 for f in figures if f['image_file'])}，"
+            f"仅图注 {sum(1 for f in figures if not f['image_file'])}）")
 
         # ---------------- S2 Segment ----------------
         log("S2 Segment（中英文标题 + 窗口兜底）")
@@ -315,7 +375,7 @@ class Pipeline:
         s4_paths = [cache / "capabilities.json"]
         capability_sources = sorted((Path(__file__).parent / "capabilities").glob("*.py"))
         llm_sources = sorted((Path(__file__).parent / "llm").rglob("*"))
-        s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], DEFAULT_RUN_CONFIG]
+        s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], s1_paths[4], DEFAULT_RUN_CONFIG]
                                    + capability_sources + llm_sources)
         if self.state.should_skip(run_id, "S4", s4_hash, s4_paths):
             log("S4 SKIP")
@@ -326,6 +386,8 @@ class Pipeline:
             caps["book_sha256"] = book_sha256
             # genre_tags / engine_targets 是 per-run 的路由结果，不能写进共享
             # capabilities.json；保持为空数组，渲染阶段按本次 engines 过滤。
+            # figure_refs：图注落在能力卡 char 区间内则挂接（2.0）。
+            attach_figure_refs(caps, figures)
             self._write(s4_paths[0], caps, log)
             self.state.mark(run_id, "S4", s4_hash, s4_paths,
                             degraded=caps["extractor"] == "heuristic",
@@ -374,7 +436,8 @@ class Pipeline:
         plugin_files = [Path(getattr(p, "source_path", "")) for p in registry.values()]
         renderer_files = sorted((Path(__file__).parent / "render").glob("*.py"))
         s6_paths = [out_dir / "build_manifest.json"]
-        s6_hash = stage_input_hash([s5_paths[0], s2_paths[0], s3_paths[0], DEFAULT_RUN_CONFIG]
+        s6_hash = stage_input_hash([s5_paths[0], s2_paths[0], s3_paths[0], s1_paths[4],
+                                    DEFAULT_RUN_CONFIG]
                                    + plugin_files + renderer_files)
         if self.state.should_skip(run_id, "S6", s6_hash, s6_paths) and (out_dir / "build").exists():
             log("S6 SKIP")
@@ -396,17 +459,31 @@ class Pipeline:
                     "verified_capabilities": verified_caps,
                     "segments": segments, "provenance_manifest": manifest,
                     "fidelity_report": fidelity, "router_result": router_result,
+                    "figures": figures,
                 }
                 files = plugin.render(ctx)
                 target = out_dir / "build" / eng / f"{display}（{slug}）"
                 for rel, content in files.items():
                     self._write_text(target / rel, content)
+                # 2.0：全部图片资产入产物（图是交付物本体）；未挂接的图也保留
+                asset_rels = []
+                for fobj in figures:
+                    fid = fobj["figure_id"]
+                    if not fobj.get("image_file"):
+                        continue
+                    src_img = ROOT / fobj["image_file"]
+                    rel = f"assets/figures/{fid}{src_img.suffix}"
+                    dst = target / rel
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(src_img.read_bytes())
+                    asset_rels.append(rel)
                 artifacts.append({
                     "engine": eng, "genre_id": plugin.genre_id, "plugin_reason": reason,
                     "slug": slug, "display_name": display, "description": description,
-                    "skill_dir": str(target), "files": sorted(files),
+                    "skill_dir": str(target), "files": sorted(list(files) + asset_rels),
+                    "figure_assets": asset_rels,
                 })
-                log(f"    {eng}: {target}（{len(files)} 个文件）")
+                log(f"    {eng}: {target}（{len(files)} 个文件 + {len(asset_rels)} 张图）")
             build_manifest_obj = {"schema_version": "1.0", "run_id": run_id,
                                   "shared_ir": [str(p) for p in [s1_paths[0], s2_paths[0],
                                                                  s4_paths[0], s5_paths[1]]],
@@ -423,7 +500,11 @@ class Pipeline:
             log("S7 SKIP")
             validation = load_json(s7_paths[0])
         else:
-            quotes = [c["ria"]["R_quote"] for c in verified_caps]
+            # 图注进入引文集合：它们是逐字原文文本，必须计入引文比（诚实口径）
+            quotes = [c["ria"]["R_quote"] for c in verified_caps] + [
+                f["caption"] for f in figures
+                if f.get("caption") and f.get("char_start") is not None
+            ]
             per_artifact = []
             shingle_max = 0.0
             for art in artifacts:
@@ -431,7 +512,8 @@ class Pipeline:
                 qv = validate_skill(target)
                 official = self._official_validate(target)
                 lint = lint_skill_dir(target, self.config["skill_body_max_lines"])
-                gate = run_copyright_gate(target, full_text, quotes, self.config)
+                gate = run_copyright_gate(target, full_text, quotes, self.config,
+                                          figures=figures)
                 shingle_max = max(shingle_max, gate["checks"][3]["value"])
                 passed = not qv and not lint and gate["passed"] and official["status"] != "failed"
                 per_artifact.append({
@@ -454,11 +536,17 @@ class Pipeline:
         # distribution decision as a start-flag gate, never asked mid-run
         if public and confirm_public != "PUBLISH":
             raise PipelineError("公开分发必须在启动命令显式给 --public --confirm-public PUBLISH")
+        # 2.0 图片分发政策：原文图片资产随衍生笔记公开 = 复制传播原图，非自有/公版禁止
+        fig_with_images = sum(1 for f in figures if f.get("image_file"))
+        block_reason = figure_distribution_block(rights, fig_with_images)
+        if public and block_reason:
+            raise PipelineError(block_reason)
         self._write(out_dir / "distribution_decision.json", {
-            "schema_version": "1.0", "default": "private",
+            "schema_version": "2.0", "default": "private",
             "requested_public": public, "confirm_public": confirm_public or "",
             "user_rights": rights, "hard_gates_passed": validation["all_passed"],
-            "note": "默认私有；本批不执行任何远端发布动作。",
+            "figures_total": len(figures), "figures_embedded": fig_with_images,
+            "note": "默认私有；含原文图片时非自有/公版禁止公开；本批不执行任何远端发布动作。",
         }, log)
 
         # ---------------- S8 Install (optional) ----------------
@@ -498,6 +586,14 @@ class Pipeline:
                                       if caps_v["extractor"] == "llm" else None),
                 "fidelity": fidelity["metrics"],
                 "smoke": [], "router": router_result,
+                "figures": {
+                    "total": len(figures),
+                    "with_images": sum(1 for f in figures if f.get("image_file")),
+                    "caption_only": sum(1 for f in figures if not f.get("image_file")),
+                    "anchored": sum(1 for f in figures if f.get("char_start") is not None),
+                    "caps_with_figures": sum(1 for c in caps_v["capabilities"]
+                                             if c.get("figure_refs")),
+                },
                 "unverified_assumptions": fidelity["unverified_assumptions"],
                 "note": ("S4 已接入 LLM 抽取器（引文仍逐字回验）；S3 judge 仍为确定性实现。"
                          if caps_v["extractor"] == "llm"

@@ -8,6 +8,7 @@ content: hard constraints, anti-patterns, output contract, voice, templates.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from string import Template
 
 from .description import build_description
@@ -184,7 +185,7 @@ description: {ctx['description']}
 """
 
 
-def _framework_md(plugin, cap: dict, index: int) -> str:
+def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) -> str:
     ria = cap["ria"]
     steps = "\n".join(f"{i}. {s}" for i, s in enumerate(ria["A3_steps"], 1))
     body = Template(plugin.section_template).safe_substitute(
@@ -194,8 +195,25 @@ def _framework_md(plugin, cap: dict, index: int) -> str:
         steps=steps, not_applicable=ria["B_not_applicable"],
     )
     span = cap["span"]
+    fig_block = ""
+    refs = cap.get("figure_refs") or []
+    if refs and figures:
+        lines = ["\n## 配套图示\n"]
+        for fid in refs:
+            f = figures.get(fid)
+            if not f:
+                continue
+            if f.get("image_file"):
+                rel = f"assets/figures/{fid}{Path(f['image_file']).suffix}"
+            else:
+                rel = "仅图注（矢量图/无可提取位图）"
+            page = f"原文 p.{f['page']}，" if f.get("page") else ""
+            lines.append(f"- {fid}（{rel}，{page}可逐字追溯）")
+        lines.append("  图注原文不复制入产物（版权纪律）；见共享 IR figures.json / figures-index.md。")
+        fig_block = "\n".join(lines) + "\n"
     return (
         f"{body}\n"
+        f"{fig_block}"
         f"出处：{cap['source_id']} / {span['segment_id']} / char_range "
         f"[{span['char_start']}, {span['char_end']}) / 可信度 {cap['confidence']['tier']}\n"
     )
@@ -203,6 +221,7 @@ def _framework_md(plugin, cap: dict, index: int) -> str:
 
 def render_skill(plugin, ctx: dict) -> dict[str, str]:
     caps = ctx["verified_capabilities"]
+    figs = {f["figure_id"]: f for f in ctx.get("figures", [])}
     files: dict[str, str] = {"SKILL.md": _skill_md(plugin, ctx)}
 
     rows = ["## 何时读本文件", "",
@@ -210,18 +229,49 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
             "| 用户问题 / 意图 | 读取文件 |", "| --- | --- |"]
     for i, cap in enumerate(caps, 1):
         rows.append(f"| {cap['title']} / {cap['ria']['A2_user_trigger']} | `references/framework-{i:02d}.md` |")
+    if figs:
+        rows.append("| 原书图示 / 图示索引 | `references/figures-index.md` |")
     rows += ["| 出处与版权 | `references/provenance.md` |"]
     files["references/topic-index.md"] = "\n".join(rows) + "\n"
 
     for i, cap in enumerate(caps, 1):
-        files[f"references/framework-{i:02d}.md"] = _framework_md(plugin, cap, i)
+        files[f"references/framework-{i:02d}.md"] = _framework_md(plugin, cap, i, figs)
+
+    if figs:
+        flines = ["## 何时读本文件", "",
+                  "需要查看原书图示（方法结构图/表格等）时读取本表，再到 assets/figures/ 取图。", "",
+                  "| 图 ID | 类型 | 锚定状态 | 资产 | 出处 |", "| --- | --- | --- | --- | --- |"]
+        for f in figs.values():
+            if f.get("image_file"):
+                rel = f"`assets/figures/{f['figure_id']}{Path(f['image_file']).suffix}`"
+            else:
+                rel = "仅图注（矢量图/无可提取位图）"
+            if f.get("char_start") is not None:
+                status = f"已锚定 p.{f['page']}" if f.get("page") else "已锚定"
+            else:
+                status = "未锚定"
+            page = f"p.{f['page']}" if f.get("page") else "—"
+            flines.append(f"| {f['figure_id']} | {f['kind']} | {status} | {rel} | {f['source_id']} / {page} |")
+        flines += ["",
+                   "图注原文不复制入产物（版权纪律）：逐字图注与精确位置存于共享 IR `figures.json`，",
+                   "需要图注时回读 IR 或原书对应页，不要凭印象转述。",
+                   "",
+                   "版权提示：图示为原书/原文图片，仅供个人学习检索，非自有/公版时禁止随产物公开分发。"]
+        files["references/figures-index.md"] = "\n".join(flines) + "\n"
 
     prov = ctx["provenance_manifest"]
+    fig_line = ""
+    if figs:
+        fig_line = (f"- 图示：共 {len(figs)} 个"
+                    f"（带图 {sum(1 for f in figs.values() if f.get('image_file'))}，"
+                    f"仅图注 {sum(1 for f in figs.values() if not f.get('image_file'))}），"
+                    "图片资产在 assets/figures/，图注逐字锚定见 figures-index.md\n")
     files["references/provenance.md"] = (
         "## 何时读本文件\n\n当需要核对来源、可信度或版权边界时读取本文件。\n\n"
         f"- 书名：{prov['book']['title']}\n- 作者：{prov['book']['author']}\n"
         f"- ISBN：{prov['book']['isbn']}\n- 使用权：{prov['book']['user_rights']}\n"
         f"- 分发决策：{prov['distribution']['decision']}（{prov['distribution']['reason']}）\n"
+        f"{fig_line}"
         f"- {prov['attribution']['statement']}\n- {prov['attribution']['notice']}\n"
         f"- 生成引擎：BookLeme {prov['engine']['bookleme_version']} / 插件 {prov['engine']['plugin_id']}\n"
     )
