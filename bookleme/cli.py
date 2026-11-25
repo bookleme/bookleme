@@ -45,6 +45,13 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--include-public", action="store_true",
                      help="把 sources/public 里历史抓取的公开源一并编译（默认只编译本次输入）")
     run.add_argument("--run-id", default=None)
+    run.add_argument("--project-context", default=None,
+                     help="本项目上下文 JSON（区分「原文说的」与「本项目验证的」）："
+                          "含 code_version / job_ids / test_scope / data_version / "
+                          "source_says / project_evidence / verified / pending")
+    run.add_argument("--real-tasks", default=None,
+                     help="真实任务评测集 JSON（资料+项目上下文+任务）："
+                          "考回答能否落地、是否区分模拟与线上、能否说明无法下结论")
 
     plugin = sub.add_parser("plugin", help="体裁插件工具")
     psub = plugin.add_subparsers(dest="plugin_cmd", required=True)
@@ -68,6 +75,14 @@ def _build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("eval", help="查看某次 run 的指标")
     ev.add_argument("--run-id", default=None, help="run id（默认最近一次）")
     ev.add_argument("--json", action="store_true", help="输出完整 JSON（默认给人话摘要）")
+
+    fr = sub.add_parser("freshness",
+                        help="检查源材料是否已变（Wiki/网页更新后提示重新核对）")
+    fr.add_argument("--run-id", default=None, help="run id（默认最近一次）")
+    fr.add_argument("--source", action="append", default=None,
+                    help="当前材料路径（可多次；不给则用记录里的路径比对）")
+    fr.add_argument("--out", default=None, help="报告输出路径（默认写到 run 目录）")
+    fr.add_argument("--json", action="store_true", help="输出 JSON（默认给人话版）")
 
     sch = sub.add_parser("schema", help="校验所有 JSON Schema 文件与 state.json")
     sch.add_argument("--state", action="store_true")
@@ -178,6 +193,151 @@ def _schema_check(state: bool) -> int:
     ok = all(v == "ok" for v in results.values())
     print(json.dumps({"passed": ok, "files": results}, ensure_ascii=False, indent=2))
     return 0 if ok else 1
+
+
+def _extract_comparable_text(raw: str) -> str:
+    """从源文件里取出可比对的正文。
+
+    fetch 落盘的 public 源是 JSON，正文在 `content` 字段里、换行是转义的 `\\n`。
+    直接按行比会把整篇正文当一行（diff 粒度全丢，实测一行 diff 出 50KB）。
+    解出 content 并还原换行，diff 才有意义。
+    """
+    if not raw:
+        return raw
+    stripped = raw.lstrip()
+    if stripped.startswith("{"):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return raw
+        if isinstance(data, dict):
+            for key in ("content", "text", "body", "markdown"):
+                val = data.get(key)
+                if isinstance(val, str) and val:
+                    return val
+    return raw
+
+
+def _freshness(args) -> int:
+    """源材料新鲜度检查（P2）：源变了就提示重新核对，并展示新旧差异。"""
+    from .evidence.freshness import (build_freshness_report, diff_text,
+                                     render_freshness_md, save_report)
+    run_id = args.run_id or _latest_run_id()
+    if not run_id:
+        print("[ERROR] 还没有任何 run，先跑一次 `bookleme run`。", file=sys.stderr)
+        return 1
+    run_dir = OUT_DIR / run_id
+    metrics_path = run_dir / "metrics.json"
+    if not metrics_path.is_file():
+        print(f"[ERROR] 未找到 {metrics_path}", file=sys.stderr)
+        return 1
+    metrics = load_json(metrics_path)
+    from .judge.apply import _cache_dir_from_state
+    cache_dir = Path(metrics.get("cache_dir") or _cache_dir_from_state(run_id))
+    sources_path = cache_dir / "sources.json"
+    if not sources_path.is_file():
+        print(f"[ERROR] 未找到源清单：{sources_path}", file=sys.stderr)
+        return 1
+    sources_obj = load_json(sources_path)
+    sources = sources_obj.get("sources") or []
+
+    # 当前材料路径：--source 按顺序给；不给则用记录里的 path
+    current_paths: dict = {}
+    given = list(args.source or [])
+    for i, src in enumerate(sources):
+        sid = src.get("source_id", "")
+        if given:
+            if i < len(given):
+                current_paths[sid] = Path(given[i])
+        elif src.get("path"):
+            current_paths[sid] = Path(src["path"])
+
+    # 比对基准：**编译时的源快照**，不是 sources.json 里记的 sha256。
+    # 原因：sources.json 的 sha256 是本次 run 抓取时就写下的（等于「当前」），
+    # 拿它比永远是「未变」，看不出 Wiki 有没有更新。快照才是「编译时看到的」。
+    snap_dir = cache_dir / "sources_snapshot"
+    baseline: dict = {}
+    for src in sources:
+        sid = src.get("source_id", "")
+        snap = snap_dir / f"{sid}.txt"
+        if snap.is_file():
+            from .evidence.freshness import content_digest
+            baseline[sid] = {
+                "sha256": content_digest(snap.read_bytes()),
+                "retrieved_at": src.get("retrieved_at", ""),
+                "bytes": snap.stat().st_size,
+            }
+
+    report = build_freshness_report(sources, current_paths, baseline=baseline)
+
+    # 有变化的源 → 算差异与受影响章节
+    #
+    # 比对对象必须是**上次编译时抓取的原始源文件**，不是编译语料。
+    # 原因：full_text.txt 是归一化 + 拼接后的产物（带 SOURCE: 头、换行被规整），
+    # 拿它跟原始 JSON 比，diff 全是噪音（实测 +0/-57 行全是格式差异）。
+    # 正确的旧版本是 sources.json 里记录的 path —— 但它已被新抓取覆盖了。
+    # 所以：编译时把源文件快照存到 cache/<sha>/sources_snapshot/，这里跟快照比。
+    diffs: dict = {}
+    segments_path = cache_dir / "segments.json"
+    segments: list[dict] = []
+    if segments_path.is_file():
+        segments = load_json(segments_path).get("segments") or []
+    snap_dir = cache_dir / "sources_snapshot"
+    for chk in report["checks"]:
+        if chk["status"] != "changed":
+            continue
+        sid = chk["source_id"]
+        cur = current_paths.get(sid)
+        snap = snap_dir / f"{sid}.txt"
+        if not cur or not Path(cur).is_file() or not snap.is_file():
+            continue
+        try:
+            new_text = Path(cur).read_text(encoding="utf-8", errors="replace")
+            old_text = snap.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        # JSON 源的正文在 content 字段里（且换行是转义的 \\n）——
+        # 直接按行比会把整篇正文当一行，diff 粒度全丢。解出来再比。
+        new_text = _extract_comparable_text(new_text)
+        old_text = _extract_comparable_text(old_text)
+        d = diff_text(old_text, new_text)
+        if d:
+            diffs[sid] = d
+            if segments:
+                from .evidence.freshness import affected_sections
+                affected = affected_sections(old_text, new_text, segments)
+                if affected:
+                    diffs[f"{sid}::affected_sections"] = [
+                        "以下章节受影响，需重新核对：" + "、".join(affected)]
+
+    out_path = Path(args.out) if args.out else (run_dir / "freshness_report.json")
+    save_report(report, out_path)
+    md_path = out_path.with_suffix(".md")
+    md_path.write_text(render_freshness_md(report, diffs), encoding="utf-8")
+
+    if getattr(args, "json", False):
+        print(json.dumps({**report, "diffs": diffs}, ensure_ascii=False, indent=2))
+        return 0
+
+    s = report["summary"]
+    print(f"run {run_id} · 源材料新鲜度")
+    print(f"  合计 {s['total']} 个源：未变 {s['fresh']} · 已变 {s['changed']} · "
+          f"未知 {s['unknown']} · 已丢失 {s['missing']}")
+    for chk in report["checks"]:
+        mark = "✓" if chk["status"] == "fresh" else "!"
+        print(f"  {mark} {chk['source_id']}：{chk['detail']}")
+    if diffs:
+        print()
+        print("  ⚠ 源内容已变，下列分片需重新核对：")
+        for sid, d in diffs.items():
+            added = sum(1 for x in d if x.startswith("+") and not x.startswith("+++"))
+            removed = sum(1 for x in d if x.startswith("-") and not x.startswith("---"))
+            print(f"    {sid}：+{added} / -{removed} 行")
+        print()
+        print("  → 重跑 `bookleme run` 会用新内容重编译；差异全文见下")
+    print(f"  报告 {out_path}")
+    print(f"  差异 {md_path}")
+    return 0
 
 
 def _print_eval_summary(run_id: str, data: dict) -> None:
@@ -506,6 +666,7 @@ def main(argv: list[str] | None = None) -> int:
                 isbn=args.isbn, language=args.language, user_rights=args.user_rights,
                 public=args.public, confirm_public=args.confirm_public,
                 extra_plugin_dir=args.plugin_dir, include_public=args.include_public,
+                project_context=args.project_context, real_tasks=args.real_tasks,
             )
         except (FileExistsError, PipelineError) as exc:
             # 失败也要给出「东西在哪、怎么继续」——只留一句报错等于把人扔在半路
@@ -591,6 +752,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         _print_eval_summary(run_id, data)
         return 0
+    if args.command == "freshness":
+        return _freshness(args)
     if args.command == "schema":
         return _schema_check(args.state)
     return 2
