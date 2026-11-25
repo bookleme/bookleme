@@ -106,7 +106,8 @@ class Pipeline:
 
     def _write_text(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
+        # 临时文件名带进程号：并发跑多个流水线时共用同名 .tmp 会互相覆盖
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
 
@@ -147,11 +148,15 @@ class Pipeline:
         # 不再打「预计 30-45 分钟」——实测大部分批次几秒就跑完，那个估计是误导。
         log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(input_paths)} 个")
         log(f"[BATCH] 实时日志：{log_path}（进度 {PROGRESS_PATH} / {STATE_PATH}）")
-        self._write_text(PROGRESS_PATH,
-                         f"# BookLeme 进度（最新批次 {run_id}）\n\n"
+        progress_body = (f"# BookLeme 进度（最新批次 {run_id}）\n\n"
                          f"- 计划总量：S0-S9 共 9 个 stage；输入源 {len(input_paths)} 个\n"
-                         f"- 日志绝对路径：{log_path}\n\n"
+                         f"- 日志绝对路径：{log_path}\n"
+                         f"- LLM 配置指纹：{llm.config_fingerprint()}"
+                         f"（{llm.settings().get('source') or '未配置'}）\n\n"
                          f"## Stage 记录\n")
+        self._write_text(PROGRESS_PATH, progress_body)
+        # 同时留一份本次 run 专属的进度文件：并发跑时 progress.md 会被互相覆盖
+        self._write_text(LOG_DIR / self.milestone / f"progress-{run_id}.md", progress_body)
 
         rights = user_rights or self.config["user_rights"]
         book_title = title or Path(input_paths[0]).stem
@@ -414,7 +419,10 @@ class Pipeline:
                 break
         if genre_fields:
             log(f"    体裁额外必填字段：{'、'.join(genre_fields)}")
-        s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], s1_paths[4], DEFAULT_RUN_CONFIG]
+        # LLM 生效配置进指纹：配了模型不重算、换模型指纹不变，都是「指标被当成同一次实验」
+        llm_fp = llm.config_fingerprint()
+        s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], s1_paths[4], DEFAULT_RUN_CONFIG,
+                                    llm_fp]
                                    + capability_sources + llm_sources + plugin_files_s4)
         if self.state.should_skip(run_id, "S4", s4_hash, s4_paths):
             log("S4 SKIP")
@@ -458,7 +466,8 @@ class Pipeline:
         # 否则旧 fidelity_report.json 会被误当成新代码产物。
         fidelity_sources = sorted((Path(__file__).parent / "fidelity").glob("*.py"))
         llm_sources_s5 = sorted((Path(__file__).parent / "llm").rglob("*"))
-        s5_hash = stage_input_hash([s4_paths[0], s1_paths[0], DEFAULT_RUN_CONFIG]
+        s5_hash = stage_input_hash([s4_paths[0], s1_paths[0], DEFAULT_RUN_CONFIG,
+                                    llm.config_fingerprint()]
                                    + fidelity_sources + llm_sources_s5)
         if self.state.should_skip(run_id, "S5", s5_hash, s5_paths):
             log("S5 SKIP")

@@ -71,6 +71,7 @@ def collect(run_id: str) -> dict:
     figures = []
     for f in figures_obj.get("figures", []):
         fid = f["figure_id"]
+        imgs = {e: art_figs.get(e, {}).get(fid, "") for e in art_figs}
         figures.append({
             "id": fid, "kind": f.get("kind"), "page": f.get("page"),
             "source_id": f.get("source_id"),
@@ -78,9 +79,9 @@ def collect(run_id: str) -> dict:
             "anchor_kind": f.get("anchor_kind", ""),
             "caption_len": len(f.get("caption", "") or ""),
             "has_image": bool(f.get("image_file")),
-            "unlabeled": bool(f.get("unlabeled")),
-            "pairing_uncertain": bool(f.get("pairing_uncertain")),
-            "images": {e: art_figs.get(e, {}).get(fid, "") for e in art_figs},
+            # 图片没随产物落地就别给空路径：页面会显示一个永远转圈的破图
+            "image_missing": bool(f.get("image_file")) and not any(imgs.values()),
+            "images": imgs,
             "linked_caps": [c["capability_id"] for c in caps_obj.get("capabilities", [])
                             if fid in (c.get("figure_refs") or [])],
         })

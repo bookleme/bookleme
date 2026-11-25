@@ -45,6 +45,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     plugin = sub.add_parser("plugin", help="体裁插件工具")
     psub = plugin.add_subparsers(dest="plugin_cmd", required=True)
+    pl = psub.add_parser("list", help="列出可用体裁插件")
+    pl.add_argument("--json", action="store_true", help="输出 JSON")
     pv = psub.add_parser("validate", help="校验插件 18 个必填字段")
     pv.add_argument("file", help="插件 .py 绝对路径")
 
@@ -62,6 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ev = sub.add_parser("eval", help="查看某次 run 的指标")
     ev.add_argument("--run-id", required=True)
+    ev.add_argument("--json", action="store_true", help="输出完整 JSON（默认给人话摘要）")
 
     sch = sub.add_parser("schema", help="校验所有 JSON Schema 文件与 state.json")
     sch.add_argument("--state", action="store_true")
@@ -92,6 +95,35 @@ def _plugin_validate(path: str) -> int:
     print(json.dumps({"passed": not errors, "genre_id": getattr(plugin, "genre_id", ""),
                       "errors": errors}, ensure_ascii=False, indent=2))
     return 0 if not errors else 1
+
+
+def _plugin_list(as_json: bool) -> int:
+    from .plugins import load_plugins
+    registry, diagnostics = load_plugins()
+    rows = []
+    for gid in sorted(registry):
+        p = registry[gid]
+        rows.append({"genre_id": gid, "display_name_zh": getattr(p, "display_name_zh", ""),
+                     "version": getattr(p, "version", ""),
+                     "default_engines": getattr(p, "default_engines", [])})
+    if as_json:
+        print(json.dumps({"plugins": rows,
+                          "broken": [d for d in diagnostics if d.get("status") in ("rejected", "error")]},
+                         ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        print("没有可用插件。")
+        return 0
+    print("可用体裁插件（--genre <id> 选用）：\n")
+    for r in rows:
+        print(f"  {r['genre_id']:<22} {r['display_name_zh']:<12} "
+              f"{'/'.join(r['default_engines'])}")
+    broken = [d for d in diagnostics if d.get("status") in ("rejected", "error")]
+    if broken:
+        print("\n有插件未加载：")
+        for d in broken:
+            print(f"  {d.get('path', '')}: {str(d.get('errors'))[:160]}")
+    return 0
 
 
 def _validate_skill_dir(path: str) -> int:
@@ -129,6 +161,45 @@ def _schema_check(state: bool) -> int:
     ok = all(v == "ok" for v in results.values())
     print(json.dumps({"passed": ok, "files": results}, ensure_ascii=False, indent=2))
     return 0 if ok else 1
+
+
+def _print_eval_summary(run_id: str, data: dict) -> None:
+    """人话摘要：这次编得怎么样、哪里要留意、null 意味着什么。"""
+    fid = data.get("fidelity", {}) or {}
+    figs = data.get("figures", {}) or {}
+    judge = data.get("judge_summary", {}) or {}
+
+    def fmt(key):
+        m = fid.get(key)
+        if not isinstance(m, dict):
+            return "—"
+        v = m.get("value")
+        if v is None:
+            return "未判定"
+        if isinstance(v, (int, float)) and 0 <= v <= 1:
+            return f"{v * 100:.1f}%"
+        return str(v)
+
+    print(f"run {run_id} · 抽取方式 {data.get('extractor') or '—'} · "
+          f"LLM 调用 {data.get('llm_calls', 0)} 次")
+    print("  忠实度：覆盖度 " + fmt("coverage_score")
+          + " · 逐字违规率 " + fmt("verbatim_violation_rate")
+          + " · 无支撑断言率 " + fmt("unsupported_claim_rate")
+          + " · groundedness " + fmt("groundedness"))
+    if figs:
+        print(f"  图示：{figs.get('total', 0)} 张（带位图 {figs.get('with_images', 0)}，"
+              f"仅图注 {figs.get('caption_only', 0)}，已锚定 {figs.get('anchored', 0)}）")
+    if judge.get("enabled"):
+        print(f"  judge：判定 {judge.get('judged', 0)} 张卡，"
+              f"支持 {judge.get('grounded', 0)}，未判定 {judge.get('grounded_unknown', 0)}，"
+              f"调用失败 {judge.get('failed_calls', 0)}")
+    else:
+        print("  judge：未接入（groundedness / V2 / V3 如实为 null，未伪造）")
+    nulls = [k for k, v in fid.items()
+             if isinstance(v, dict) and v.get("value") is None]
+    if nulls:
+        print("  注意：以下指标未判定 —— " + "、".join(nulls) + "（原因见 metrics.json 的 note）")
+    print(f"  完整指标：{OUT_DIR / run_id / 'metrics.json'}")
 
 
 def _doctor(run_id: str | None) -> int:
@@ -191,6 +262,14 @@ def main(argv: list[str] | None = None) -> int:
             print("[ERROR] 公开分发需要同时给 --public --confirm-public PUBLISH（裸词确认）。"
                   "只想自己用就不要加 --public。", file=sys.stderr)
             return 1
+        if args.public and not args.user_rights:
+            print("[ERROR] 公开分发必须先声明使用权利：加 --user-rights "
+                  "owned|licensed|public_domain。权利未确认时不能公开分发。", file=sys.stderr)
+            return 1
+        if args.public and args.user_rights == "unknown":
+            print("[ERROR] --user-rights unknown 与 --public 冲突：权利未确认不得公开分发。",
+                  file=sys.stderr)
+            return 1
         if args.plugin_dir and not Path(args.plugin_dir).expanduser().is_dir():
             print(f"[ERROR] 插件目录不存在：{args.plugin_dir}", file=sys.stderr)
             return 1
@@ -224,7 +303,19 @@ def main(argv: list[str] | None = None) -> int:
                 extra_plugin_dir=args.plugin_dir,
             )
         except PipelineError as exc:
+            # 失败也要给出「东西在哪、怎么继续」——只留一句报错等于把人扔在半路
+            from datetime import datetime as _dt
+            effective_run = args.run_id or _dt.now().strftime("%Y%m%d-%H%M%S")
+            out_dir = OUT_DIR / effective_run
+            log_path = ROOT / "logs" / "M0-M2" / f"run-{effective_run}.log"
+            empty = out_dir.is_dir() and not any(out_dir.iterdir())
+            if empty:
+                out_dir.rmdir()          # 没产出东西就别留空目录冒充「有结果」
             print(f"[ERROR] {exc}", file=sys.stderr)
+            print(f"        run_id : {effective_run}", file=sys.stderr)
+            if not empty:
+                print(f"        产物   : {out_dir}", file=sys.stderr)
+            print(f"        日志   : {log_path}", file=sys.stderr)
             return 1
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
@@ -267,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
         summary["record"] = str(ROOT / "sources" / "public")
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
+    if args.command == "plugin" and args.plugin_cmd == "list":
+        return _plugin_list(args.json)
     if args.command == "plugin" and args.plugin_cmd == "validate":
         return _plugin_validate(args.file)
     if args.command == "validate":
@@ -276,7 +369,11 @@ def main(argv: list[str] | None = None) -> int:
         if not metrics.exists():
             print(f"[ERROR] 未找到 {metrics}", file=sys.stderr)
             return 1
-        print(json.dumps(load_json(metrics), ensure_ascii=False, indent=2))
+        data = load_json(metrics)
+        if getattr(args, "json", False):
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+        _print_eval_summary(args.run_id, data)
         return 0
     if args.command == "schema":
         return _schema_check(args.state)

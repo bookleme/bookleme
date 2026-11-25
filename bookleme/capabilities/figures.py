@@ -130,10 +130,16 @@ def extract_figure_cards(figures: list[dict], config: dict, book_title: str = ""
         if not ria["I_rephrase"] or not ria["A3_steps"]:
             continue                      # 六段不全 → 不进产物（S5 会判 rejected）
         idx = len(out) + 1
-        quote_pos = full_text.find(quote)
-        if quote_pos < 0:
-            continue                      # 锚点切片不在语料里 → 弃卡（不伪造）
-        char_start = quote_pos
+        # 锚点用**图的权威位置**（figures.json 里已在语料中定位过），不要用
+        # full_text.find(quote) 重找——引文在目录/正文重复时 find 会指到第一次出现
+        # 的位置（目录页），出处就指错了。
+        anchor = int(fig["char_start"])
+        if full_text[anchor:anchor + len(quote)] == quote:
+            char_start = anchor
+        else:
+            char_start = full_text.find(quote)
+            if char_start < 0:
+                continue                      # 锚点切片不在语料里 → 弃卡（不伪造）
         out.append({
             "capability_id": f"FIGCAP-{idx:03d}",
             # 标题带图 ID：模型常给出相似标题（如多张图都叫「整体结构图」），

@@ -91,8 +91,19 @@ def v1_cross_domain(caps: dict, segments: dict, *, n: int = 13,
     return out
 
 
-def _context(full_text: str, quote: str, radius: int) -> str:
-    pos = full_text.find(quote)
+def _context(full_text: str, quote: str, radius: int, anchor: int | None = None) -> str:
+    """取引文附近的原文作为 judge 的判据上下文。
+
+    优先用能力卡自带的权威锚点（读图卡来自 figures.json）；否则退回 find。
+    find 返回的是引文**第一次出现**的位置——引文在目录/正文重复时会取错段，
+    judge 就会拿目录页当判据。
+    """
+    pos = -1
+    if isinstance(anchor, int) and anchor >= 0 \
+            and full_text[anchor:anchor + len(quote)] == quote:
+        pos = anchor
+    else:
+        pos = full_text.find(quote)
     if pos < 0:
         return ""
     lo = max(0, pos - radius)
@@ -156,7 +167,8 @@ def judge_capabilities(caps: dict, full_text: str, config: dict, *, votes: int =
         cid = cap.get("capability_id", "")
         ria = cap.get("ria") or {}
         quote = ria.get("R_quote", "")
-        ctx = _context(full_text, quote, context_radius)
+        ctx = _context(full_text, quote, context_radius,
+                       (cap.get("span") or {}).get("char_start"))
         grounded_votes: list[bool] = []
         v3_votes: list[bool] = []
         supports: list[str] = []

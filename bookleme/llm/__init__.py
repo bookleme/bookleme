@@ -77,6 +77,10 @@ def _file_config() -> dict:
 def _resolve() -> dict:
     """解析出 {base_url, api_key, model, vision_model, source, missing, ignored}。
 
+    **端点与密钥必须同源**：配置里指了 moonshot 的端点，就只认 moonshot 的密钥；
+    绝不拿别家厂商的密钥去补这个端点（那等于把 A 的密钥发给 B 的服务器）。
+    没有显式配置时，才从标准环境变量里自动认领一家（认领后端点/密钥/模型同属一家）。
+
     `missing` 列出「已设了但还差哪一项」——诊断要说清缺的那一项，而不是笼统地说
     「什么都没检测到」；`ignored` 列出「检测到但没被选中」的厂商密钥，避免静默错配。
     """
@@ -93,18 +97,33 @@ def _resolve() -> dict:
     source = "环境变量 BOOKLEME_LLM_*" if explicit else (
         f"配置文件 {CONFIG_PATH}" if cfg else "")
     ignored: list[str] = []
+
     if not (base and key and model):
-        for env_name, default_base, label in PROVIDERS:
-            pk = os.environ.get(env_name, "")
-            if not pk:
-                continue
-            if not (base and key and model):
-                base = base or default_base
-                key = key or pk
+        # 已指定端点但缺密钥/模型 → 只认与该端点同族的厂商，绝不跨厂商补齐
+        matched = [(env_name, default_base, label) for env_name, default_base, label in PROVIDERS
+                   if default_base == base]
+        if base and matched:
+            for env_name, default_base, label in matched:
+                pk = os.environ.get(env_name, "")
+                if pk and not key:
+                    key = pk
+                    source = source or f"自动识别 {label}（{env_name}，与已指定端点同源）"
+                elif pk:
+                    ignored.append(f"{label}（{env_name}）")
+        elif not base:
+            # 什么都没指定 → 认领一家（端点/密钥/模型同属一家）
+            for env_name, default_base, label in PROVIDERS:
+                pk = os.environ.get(env_name, "")
+                if not pk:
+                    continue
+                base = default_base
+                key = pk
                 model = model or _default_model(label)
                 source = source or f"自动识别 {label}（{env_name}）"
-            else:
-                ignored.append(f"{label}（{env_name}）")
+                break
+            for env_name, default_base, label in PROVIDERS:
+                if os.environ.get(env_name) and label not in source:
+                    ignored.append(f"{label}（{env_name}）")
     found = {"base_url": base, "api_key": key, "model": model}
     missing = [name for name, val in found.items() if not val]
     # 「什么都没配」与「配了一半」要说不一样的话：前者是起步指引，后者是补齐指引
@@ -113,6 +132,14 @@ def _resolve() -> dict:
             "vision_model": vision, "source": source,
             "missing": missing, "ignored": ignored,
             "configured_any": configured_any}
+
+
+def config_fingerprint() -> str:
+    """生效配置的指纹（**不含密钥明文**）——换模型/换端点必须能被检出。"""
+    s = settings()
+    raw = "|".join([s.get("base_url", ""), s.get("model", ""),
+                    s.get("vision_model", ""), "key" if s.get("api_key") else "nokey"])
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def _default_model(label: str) -> str:

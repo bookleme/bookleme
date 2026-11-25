@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "2.1.0")
+        self.assertEqual(__version__, "2.1.1")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -1227,6 +1227,132 @@ class TestReviewFixes(unittest.TestCase):
         claim = build_claim_ledger(caps, "sha", "/tmp/slices")["claims"][0]
         self.assertEqual(claim["source_tier"], "B", "来源等级取自来源，不得取抽取方式等级")
         self.assertEqual(claim["confidence_tier"], "B", "抽取方式等级另存 confidence_tier")
+
+
+class TestPatch211Fixes(unittest.TestCase):
+    """2.1.1 补丁：密钥同源、缓存指纹、锚点权威性、命令体验。"""
+
+    def test_llm_never_crosses_providers(self):
+        """配置指了 A 厂商端点，就绝不能拿 B 厂商的密钥去补（等于把密钥发给别家）。"""
+        from unittest import mock
+        import bookleme.llm as llm_mod
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.json"
+            cfg.write_text(json.dumps({"llm": {
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key_env": "MOONSHOT_API_KEY", "model": "moonshot-v1-8k"}}), encoding="utf-8")
+            with mock.patch.object(llm_mod, "CONFIG_PATH", cfg), \
+                 mock.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-openai"}, clear=False):
+                llm_mod.reset_counters()
+                s = llm_mod.settings()
+                self.assertNotEqual(s["api_key"], "sk-openai",
+                                    "不得拿别家厂商的密钥配已指定的端点")
+                self.assertFalse(llm_mod.available(), "缺本家密钥时应如实报未就绪")
+                self.assertIn("api_key", s["missing"])
+        llm_mod.reset_counters()
+
+    def test_llm_config_fingerprint_changes_with_model(self):
+        from unittest import mock
+        import bookleme.llm as llm_mod
+        with mock.patch.dict("os.environ", {
+                "BOOKLEME_LLM_BASE_URL": "https://x/v1", "BOOKLEME_LLM_API_KEY": "k",
+                "BOOKLEME_LLM_MODEL": "model-a"}, clear=False):
+            llm_mod.reset_counters()
+            a = llm_mod.config_fingerprint()
+            with mock.patch.dict("os.environ", {"BOOKLEME_LLM_MODEL": "model-b"}):
+                llm_mod.reset_counters()
+                b = llm_mod.config_fingerprint()
+            self.assertNotEqual(a, b, "换模型必须改变指纹（否则缓存不失效、指标被当成同一次实验）")
+            self.assertNotIn("k", a, "指纹不得包含密钥明文")
+        llm_mod.reset_counters()
+
+    def test_verify_quotes_respects_authoritative_anchor(self):
+        from bookleme.fidelity import verify_quotes
+        text = "目录：先问三个问题再看选项\n正文甲：先问三个问题再看选项\n正文乙：别的内容"
+        caps = {"capabilities": [{
+            "capability_id": "CAP-0001", "ria": {"R_quote": "先问三个问题再看选项",
+                                                "I_rephrase": "i", "A1_author_case": "a",
+                                                "A2_user_trigger": "t", "A3_steps": ["s"],
+                                                "B_not_applicable": "b"},
+            "span": {"segment_id": "seg-002", "char_start": text.rindex("先问三个问题再看选项"),
+                     "char_end": 0},
+            "checks": {}, "claims": [], "confidence": {"tier": "S"},
+        }]}
+        out, _ = verify_quotes(caps, text, [], load_run_config())
+        cap = out["capabilities"][0]
+        self.assertEqual(cap["span"]["char_start"], text.rindex("先问三个问题再看选项"),
+                         "已有权威锚点时不得退回 find 的第一次出现位置")
+
+    def test_judge_context_uses_anchor_not_first_occurrence(self):
+        from bookleme.fidelity.judge import _context
+        text = "目录：先问三个问题再看选项\n正文：先问三个问题再看选项 真正的判据在这里"
+        anchor = text.rindex("先问三个问题再看选项")
+        ctx = _context(text, "先问三个问题再看选项", 40, anchor)
+        self.assertIn("真正的判据在这里", ctx, "判据上下文必须取锚点附近，而不是目录页")
+
+    def test_plugin_list_command_exists(self):
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        out = subprocess.run(["python3", "-m", "bookleme", "plugin", "list"], cwd=str(root),
+                             capture_output=True, text=True, timeout=120)
+        self.assertEqual(out.returncode, 0, out.stderr[-300:])
+        for gid in ("coach_dialogue", "knowledge_reference", "professional_analysis",
+                    "decision_checklist"):
+            self.assertIn(gid, out.stdout)
+
+    def test_eval_prints_human_summary(self):
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        runs = sorted((d for d in (root / "out").iterdir() if d.is_dir()),
+                      key=lambda p: p.stat().st_mtime)
+        run_id = runs[-1].name
+        out = subprocess.run(["python3", "-m", "bookleme", "eval", "--run-id", run_id],
+                             cwd=str(root), capture_output=True, text=True, timeout=120)
+        self.assertEqual(out.returncode, 0, out.stderr[-300:])
+        self.assertIn("run", out.stdout)
+        self.assertIn("忠实度", out.stdout)
+
+    def test_public_requires_declared_rights(self):
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        out = subprocess.run(["python3", "-m", "bookleme", "run", "--input",
+                              "evals/cases/synthetic/coach_book.md", "--public",
+                              "--confirm-public", "PUBLISH"],
+                             cwd=str(root), capture_output=True, text=True, timeout=180)
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("user-rights", out.stderr, "公开分发缺权利声明必须在开跑前就拦下")
+
+    def test_inspect_missing_run_is_friendly(self):
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        out = subprocess.run(["python3", "-m", "bookleme", "inspect", "no-such-run"],
+                             cwd=str(root), capture_output=True, text=True, timeout=120)
+        self.assertEqual(out.returncode, 1)
+        self.assertNotIn("Traceback", out.stderr, "不存在的 run 不该抛裸栈")
+
+    def test_write_text_uses_pid_scoped_temp(self):
+        from bookleme.config import dump_json
+        import os as _os
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "x.txt"
+            p.write_text("旧", encoding="utf-8")
+            # 用 pipeline 的写法落一次，确认不留 .tmp
+            from bookleme.pipeline import Pipeline
+            tmp = p.with_name(f"{p.name}.{_os.getpid()}.tmp")
+            tmp.write_text("新", encoding="utf-8")
+            _os.replace(tmp, p)
+            self.assertEqual(p.read_text(encoding="utf-8"), "新")
+            self.assertEqual(list(Path(td).glob("*.tmp")), [])
+
+    def test_inspector_flags_missing_image_assets(self):
+        from bookleme.inspect import collect
+        runs = sorted((d for d in (ROOT / "out").iterdir() if d.is_dir()),
+                      key=lambda p: p.stat().st_mtime)
+        data = collect(runs[-1].name)
+        missing = [f for f in data["figures"] if f.get("image_missing")]
+        for f in missing:
+            self.assertFalse(any(f["images"].values()),
+                             "标记为缺失的图不应同时带着路径（否则又变回坏图）")
 
 
 if __name__ == "__main__":
