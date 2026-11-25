@@ -72,15 +72,6 @@ def _steps(plugin, ctx: dict) -> str:
         "正文骨架用 `assets/blueprint-template.md`，交付前对照其中的「必备字段核对」。"
         if ctx["engine"] == "behavior_skill" else ""
     )
-    figures = ctx.get("figures") or []
-    fig_note = ""
-    if figures:
-        n_img = sum(1 for f in figures if f.get("image_file"))
-        fig_note = (
-            f"若问题涉及图里的结构/流程/数据，先按 `references/figures-index.md` 取图"
-            f"（{n_img} 张位图在 `assets/figures/`）并**用你的视觉能力读图**，"
-            f"作答注明「依据 FIG-XXX（原文 p.N）」；图里看不清就明说「图中此处无法辨认」。"
-        )
     return "\n".join([
         "### Step 1：确认适用条件",
         "",
@@ -92,8 +83,7 @@ def _steps(plugin, ctx: dict) -> str:
         "",
         "### Step 3：按框架执行",
         "",
-        "按分片中的 1-2-3 步骤执行，并保留作者的精确命名；每条判断都要带上出处。"
-        + (f"\n{fig_note}" if fig_note else ""),
+        "按分片中的 1-2-3 步骤执行，并保留作者的精确命名；每条判断都要带上出处。",
         "",
         "### Step 4：产出具名结果并声明边界",
         "",
@@ -198,25 +188,13 @@ description: {ctx['description']}
 def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) -> str:
     ria = cap["ria"]
     steps = "\n".join(f"{i}. {s}" for i, s in enumerate(ria["A3_steps"], 1))
-    # 体裁额外必填字段（plugin.capability_schema.genre_fields）参与模板替换：
-    # 标准 RIA 字段优先，体裁字段只补空位，避免同名覆盖。
-    subst = {
-        "trigger": str(ria["A2_user_trigger"]).rstrip("。；;．. "),
-        "title": cap["title"], "quote": ria["R_quote"],
-        "rephrase": ria["I_rephrase"], "author_case": ria["A1_author_case"],
-        "steps": steps, "not_applicable": ria["B_not_applicable"],
-    }
-    genre_fields = cap.get("genre_fields") or {}
-    for key, val in genre_fields.items():
-        subst.setdefault(str(key), str(val))
-    body = Template(plugin.section_template).safe_substitute(**subst)
+    body = Template(plugin.section_template).safe_substitute(
+        trigger=str(ria["A2_user_trigger"]).rstrip("。；;．. "),
+        title=cap["title"], quote=ria["R_quote"],
+        rephrase=ria["I_rephrase"], author_case=ria["A1_author_case"],
+        steps=steps, not_applicable=ria["B_not_applicable"],
+    )
     span = cap["span"]
-    gf_block = ""
-    if genre_fields:
-        gf_lines = ["\n## 体裁必填字段\n"]
-        for key, val in genre_fields.items():
-            gf_lines.append(f"- **{key}**：{val}")
-        gf_block = "\n".join(gf_lines) + "\n"
     fig_block = ""
     refs = cap.get("figure_refs") or []
     if refs and figures:
@@ -235,7 +213,6 @@ def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) ->
         fig_block = "\n".join(lines) + "\n"
     return (
         f"{body}\n"
-        f"{gf_block}"
         f"{fig_block}"
         f"出处：{cap['source_id']} / {span['segment_id']} / char_range "
         f"[{span['char_start']}, {span['char_end']}) / 可信度 {cap['confidence']['tier']}\n"
@@ -250,22 +227,10 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
     rows = ["## 何时读本文件", "",
             "当用户问题需要定位到具体框架分片时，先读本表；不要一次性加载所有分片。", "",
             "| 用户问题 / 意图 | 读取文件 |", "| --- | --- |"]
-    # 同名卡（模型常给出相似标题）必须可区分，否则这张表等于没路由价值
-    seen: dict[str, int] = {}
     for i, cap in enumerate(caps, 1):
-        title = str(cap["title"]).strip() or f"能力 {i}"
-        n = seen.get(title, 0)
-        seen[title] = n + 1
-        if n or seen[title] > 1:
-            tag = "、".join(cap.get("figure_refs") or []) or f"#{i}"
-            title = f"{title}（{tag}）"
-        rows.append(f"| {title} / {cap['ria']['A2_user_trigger']} | `references/framework-{i:02d}.md` |")
+        rows.append(f"| {cap['title']} / {cap['ria']['A2_user_trigger']} | `references/framework-{i:02d}.md` |")
     if figs:
         rows.append("| 原书图示 / 图示索引 | `references/figures-index.md` |")
-    if ctx.get("engine") == "knowledge_pack":
-        # 这两个文件此前生成但没人指路，等于死文件——挂进索引
-        rows.append("| 快速判断表（当用户问『先看哪条』） | `references/cheatsheet.md` |")
-        rows.append("| 三级按需加载怎么用 | `references/index-guide.md` |")
     rows += ["| 出处与版权 | `references/provenance.md` |"]
     files["references/topic-index.md"] = "\n".join(rows) + "\n"
 
@@ -286,23 +251,10 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
             else:
                 status = "未锚定"
             page = f"p.{f['page']}" if f.get("page") else "—"
-            if f.get("unlabeled"):
-                status += "（无图注）"
-            if f.get("pairing_uncertain"):
-                status += "（图注与位图按序配对，仅供参考）"
             flines.append(f"| {f['figure_id']} | {f['kind']} | {status} | {rel} | {f['source_id']} / {page} |")
         flines += ["",
-                   "图注原文不复制进产物（版权纪律）：逐字图注与精确位置存于共享 IR `figures.json`，",
+                   "图注原文不复制入产物（版权纪律）：逐字图注与精确位置存于共享 IR `figures.json`，",
                    "需要图注时回读 IR 或原书对应页，不要凭印象转述。",
-                   "",
-                   "## 读图任务（多模态按需执行）",
-                   "",
-                   "本包里的图示要**亲自看图**才能用上信息，不要只凭图注推测：",
-                   "",
-                   "1. 用户的问题可能涉及图里的结构、流程或数据 → 按上表取图"
-                   "（`assets/figures/FIG-XXX.png`），用你的视觉能力读图；",
-                   "2. 读图后作答要注明「依据 FIG-XXX（原文 p.N）」，让结论可回溯；",
-                   "3. 图里看不清或没有对应图时，明说「图中此处无法辨认」/「书里没讲」，不要猜。",
                    "",
                    "版权提示：图示为原书/原文图片，仅供个人学习检索，非自有/公版时禁止随产物公开分发。"]
         files["references/figures-index.md"] = "\n".join(flines) + "\n"

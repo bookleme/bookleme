@@ -33,10 +33,6 @@
   <a href="#docs">文档</a>
 </p>
 
-> **最新**：v2.1.1 已发布——零配置（LLM 自动识别 / 读图交给运行时智能体）、编译产物检视台
-> （`bookleme inspect`）、按状态变化设计的动效语言。功能细节见
-> [CHANGELOG.md](CHANGELOG.md) 与 [Releases](https://github.com/bookleme/bookleme/releases)。
-
 ---
 
 <a id="why"></a>
@@ -137,7 +133,7 @@
 | `artifact_compliance_rate` | measured | 1.00 | ✅ 1.00 |
 | `shingle_overlap_max` | measured | ≤0.10 | ✅ 0.0006 |
 | `coverage_score` | measured | ≥0.85 | ✅ **1.00** |
-| `groundedness` | heuristic | 只报告 | 有 judge 时为真实多数票；没配模型时 `null`（不伪造） |
+| `groundedness` | heuristic | 只报告 | `null`（LLM judge 未接入） |
 
 > 📎 指标取自真实书稿批（273 页中文书，run 20261109-164758）：14/14 能力 verified、双引擎冒烟全过、版权六门全过（引文占比 0.016 / 上限 0.03）。早期合成书批过程值（`coverage_score` 0.667）如实留档。
 
@@ -145,9 +141,7 @@
 
 **6 条版权硬门**（任一失败即不安装、不发布）：单条引文 ≤150 字且逐字可追溯 · 总引文比 ≤0.03 · 连续复制 ≤150 字 · 13 字 shingle 重叠 ≤0.10 · 产物不含全文 / 切片 · `contains_original_text = false`。
 
-**版权边界**：输出是**结构化衍生笔记，不含原文段落**。使用权利默认按「未确认」处理——**私有自用照常，禁止公开分发**（要公开再用 `--user-rights` 声明并加 `--public --confirm-public PUBLISH`）。系统不会替你默认认领所有权。MIT 只覆盖转换器，不覆盖任何书籍。详见 [docs/COPYRIGHT.md](docs/COPYRIGHT.md)。
-
-**图示也要守版权**：论文/网页里的原图会以图片资产形式进入产物（`assets/figures/`），这属于复制原图本体——因此含图产物在权利非自有/公版时**禁止公开分发**，私有安装不受影响。
+**版权边界**：输出是**结构化衍生笔记，不含原文段落**。第三方书籍生成的 Skill 默认私有、不得分发；公开分发需在启动命令显式给 `--public --confirm-public PUBLISH`。MIT 只覆盖转换器，不覆盖任何书籍。详见 [docs/COPYRIGHT.md](docs/COPYRIGHT.md)。
 
 ---
 
@@ -162,15 +156,8 @@ cd bookleme
 # 零第三方依赖，Python ≥ 3.9 即可
 python3 -m bookleme --version
 
-# 先体检：环境、体裁、最近一次跑得怎么样（不需要你配置任何东西）
-python3 -m bookleme doctor
-
 # 端到端：书 → Skill
 python3 -m bookleme run --input evals/cases/synthetic/coach_book.md --title "我的第一本书"
-
-# 看看这次到底编译出了什么：单文件 HTML 检视台（双击即可打开）
-python3 -m bookleme inspect
-open out/<run_id>/inspect.html
 
 # 校验产物（官方校验器 + 自有 lint + 版权硬门）
 python3 -m bookleme validate examples/coach
@@ -179,83 +166,16 @@ python3 -m bookleme validate examples/coach
 python3 -m unittest discover -s tests -v
 ```
 
-**从网上与论文取材**（2.0 起）：
-
-```bash
-python3 -m bookleme fetch https://arxiv.org/pdf/1706.03762   # 论文 PDF（含图）
-python3 -m bookleme fetch https://example.com/article         # 网页（含配图）
-python3 -m bookleme run --input sources/public/xxx.pdf --title "论文标题"
-```
-
-抓来的资料会自动参与下一次编译；原书图片会被提取成 `assets/figures/` 资产并挂到对应能力卡。
-
 **常用参数**
 
 ```bash
---engine auto|knowledge_pack|behavior_skill|both   # 产物形态（默认自动判定，一般不用指定）
---genre <plugin_id>                                # 强制体裁（默认由路由判定，填错会直接报错并列出可用值）
---no-router                                        # 跳过体裁判定，双引擎全出
---install                                          # 写入技能真源（默认关闭，只出产物）
---user-rights owned|licensed|public_domain|unknown # 仅在要公开分发时才需要声明
+--engine auto|knowledge_pack|behavior_skill|both   # 引擎选择
+--genre <plugin_id>                                # 强制指定体裁
+--no-router                                        # 关闭路由，双引擎全出
+--install                                          # 写入技能真源（默认关闭）
+--user-rights owned|licensed|public_domain|unknown # 使用权声明
 --public --confirm-public PUBLISH                  # 公开分发（裸词确认）
 ```
-
-**关于「要不要配大模型」——默认不用**
-
-编译期调模型（更深的卡片抽取、忠实度 judge、读图预填）**是可选增强，不是前提**：
-
-- 没有任何配置 → 照常出产物，`groundedness` / `V2` / `V3` 如实显示 `null` 并注明「未接入，不伪造」；
-- 想用 → 设置任意常见厂商的标准环境变量（如 `OPENAI_API_KEY` / `MOONSHOT_API_KEY` /
-  `DASHSCOPE_API_KEY` / `DEEPSEEK_API_KEY` / `ARK_API_KEY` …）就会被**自动识别**，无需知道
-  BookLeme 的专有变量名；也可写 `~/.bookleme/config.json` 的 `llm` 段；
-- **读图不需要编译期视觉模型**：产物里带「读图任务」区块，由使用该技能的智能体
-  （多数模型原生支持多模态）在需要时亲自看图作答——这才是这套东西该有的分工。
-
-```bash
-python3 -m bookleme doctor    # 看当前识别到什么
-```
-
----
-
-<a id="figures"></a>
-
-## 图示：从「提取」到「用起来」
-
-书和论文里最有信息量的往往是图。2.0 起，图不再被当作「图片附件」，而是**一等公民**：
-
-| 环节 | 做什么 |
-|---|---|
-| 提取 | PDF 逐页抓栅格图 + 图注；网页抓 `<figure>/<figcaption>` 配图；矢量图如实标「仅图注」 |
-| 锚定 | 图注逐字定位到原文；网页图用「图前正文片段」定位（实测锚定率 2/27 → **33/35**） |
-| 挂接 | 挂到**最近的能力卡**（窗口 2000 字符内）——图注紧邻的讨论就是它的配套对象 |
-| 交付 | 图片资产进 `assets/figures/`；`references/figures-index.md` 给锚定状态与页码 |
-| 读图 | 产物带「读图任务」区块：由使用该技能的智能体**亲自看图**作答（多数模型原生支持多模态） |
-| 解读（可选） | 编译期若检测到可用模型，会把图示直接写成能力卡（`origin=figure`，可信度 B） |
-
-**图注原文不进产物**：图注是原文文本，22 条全量复制会把引文比顶到 13%（上限 3%），版权门会拦下。
-逐字图注与精确位置存在共享 IR `figures.json` 里，随时可回读、可溯源。
-
----
-
-<a id="inspect"></a>
-
-## 检视台 · `bookleme inspect`
-
-编译产物原本散在几个 JSON 和一堆 Markdown 里，要看懂「这次到底得到了什么」只能手工翻文件。
-检视台把**结论放在最前面**，单文件、零依赖、离线可开：
-
-```bash
-python3 -m bookleme inspect          # 默认最近一次 run
-python3 -m bookleme inspect <run_id>  # 指定
-open out/<run_id>/inspect.html
-```
-
-七个分区：**概览**（能不能用 · 关键数 · 产物路径一键复制）· **图示**（图库 + 锚定状态 + 点开看大图）·
-**能力卡**（可搜可筛，每张卡带逐字锚点与体裁字段）· **忠实度**（7 指标 + judge 摘要 + 未验证假设折叠）·
-**门禁**（6 条硬门的实测值与上限）· **阶段**（S0–S9 每段状态与备注）· **来源**（源清单与权利级别）。
-
-深浅色跟随系统也可手动切换；手机上单列、宽屏多列；动画只用 transform/opacity，
-`prefers-reduced-motion` 下全部降级为瞬时。
 
 ---
 
@@ -324,7 +244,7 @@ S0 输入登记 ─► S1 确定性提取 ─► S2 中文分段 ─┬─► S3
 | 文档 | 内容 |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | S0–S9 流水线、幂等模型、共享 IR、可观测性 |
-| [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) | 18 个插件必填字段、4 内置插件骨架、加载与安全扫描 |
+| [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) | 16 个插件必填字段、4 内置插件骨架、加载与安全扫描 |
 | [docs/FIDELITY.md](docs/FIDELITY.md) | 7 指标、逐字引文校验、V1/V2/V3、未验证假设表 |
 | [docs/COPYRIGHT.md](docs/COPYRIGHT.md) | 混合输入、provenance、6 条硬门、可分发性判定 |
 | [docs/EVALS.md](docs/EVALS.md) | 评测集设计、22 条硬验收清单、冒烟测试 |

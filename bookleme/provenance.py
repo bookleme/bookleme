@@ -53,14 +53,8 @@ def build_manifest(*, run_id: str, title: str, author: str, isbn: str, language:
 
 
 def decide_distribution(user_rights: str, all_hard_checks_passed: bool) -> tuple[str, str]:
-    """分发决策（只管「能不能公开」，不管「要不要私有安装」）。
-
-    权利未确认 → 禁止公开分发，但**不阻止私有自用**：安装由用户显式 --install 发起，
-    那一步本身即声明「私有使用、不再分发」。系统不得替用户默认认领所有权
-    （历史默认是 owned，等于替用户撒了谎）。
-    """
     if user_rights == "unknown":
-        return "blocked", "权利未确认：仅限私有自用，禁止公开分发（如需公开请用 --user-rights 声明）"
+        return "blocked", "user_rights=unknown: 无法确认使用权，强制私有且禁止公开"
     if not all_hard_checks_passed:
         return "blocked", "版权硬检查未全部通过"
     if user_rights == "public_domain":

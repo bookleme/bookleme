@@ -36,11 +36,6 @@ def load_plugins(extra_dir: str | None = None) -> tuple[dict[str, object], list[
 
     registry: dict[str, object] = {}
     diagnostics: list[dict] = []
-    if extra_dir and not Path(extra_dir).expanduser().is_dir():
-        # 目录不存在必须说出来：静默忽略等于骗用户「你的插件没生效是因为没有」
-        diagnostics.append({"path": str(extra_dir), "level": "external",
-                            "status": "error",
-                            "errors": ["插件目录不存在（已跳过该目录）"]})
     for level in PRIORITY:
         directory = dirs.get(level)
         if not directory or not directory.exists():
@@ -69,23 +64,11 @@ def load_plugins(extra_dir: str | None = None) -> tuple[dict[str, object], list[
 
 
 def resolve_plugin(registry: dict[str, object], engine: str, genres: list[str]) -> tuple[object | None, str]:
-    """Pick the plugin for an engine; fall back is recorded honestly in the reason.
-
-    ADR-002 §4 冻结的映射：路由取 top1，**引擎 = 插件 default_engines** —— 因此
-    knowledge_pack 引擎也优先用「被路由到的那个体裁插件」（如 decision_checklist /
-    professional_analysis 均声明支持 knowledge_pack），而不是一律 knowledge_reference。
-    仅当首选插件不支持该引擎时，才退回 knowledge_reference（检索型契约）。
-    """
-    preferred = genres[0] if genres else ""
-    if not preferred and engine == "knowledge_pack":
-        preferred = "knowledge_reference"
+    """Pick the plugin for an engine; fall back is recorded honestly in the reason."""
+    preferred = "knowledge_reference" if engine == "knowledge_pack" else genres[0] if genres else ""
     plugin = registry.get(preferred)
     if plugin is not None and engine in getattr(plugin, "default_engines", []):
         return plugin, f"preferred:{preferred}"
-    if engine == "knowledge_pack":
-        fallback = registry.get("knowledge_reference")
-        if fallback is not None:
-            return fallback, f"fallback:knowledge_reference (preferred={preferred!r} unavailable)"
 
     for gid, candidate in registry.items():
         if engine in getattr(candidate, "default_engines", []) and (

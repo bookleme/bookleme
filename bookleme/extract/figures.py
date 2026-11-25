@@ -93,14 +93,10 @@ def extract_pdf_figures(path: Path) -> list[dict]:
                 "page": pno, "kind": cap["kind"], "caption": cap["caption"],
                 "image": imgs[i] if has_img else None,
                 "ext": image_ext(imgs[i]) if has_img else "",
-                # 同页图注数与位图数不一致时，按序号配对只是猜测——如实标注
-                "pairing_uncertain": len(caps) != len(imgs),
-                "unlabeled": False,
             })
         for i in range(len(caps), len(imgs)):
-            entries.append({"page": pno, "kind": "unlabeled_figure", "caption": "",
-                            "image": imgs[i], "ext": image_ext(imgs[i]),
-                            "pairing_uncertain": True, "unlabeled": True})
+            entries.append({"page": pno, "kind": "figure", "caption": "",
+                            "image": imgs[i], "ext": image_ext(imgs[i])})
     return entries
 
 
@@ -108,8 +104,6 @@ def html_figure_entries(public_record: dict, base_dir: Path) -> list[dict]:
     """Build figure entries from a fetch record's downloaded images.
 
     Returns [{"page": None, "kind", "caption", "image": bytes|None, "ext"}].
-    `anchor_text`（图片前的正文片段）随条目带出：网页图常常只有 alt（alt 不在正文
-    里、无法在语料中定位），锚点片段则能把图定位到语料位置。
     """
     out: list[dict] = []
     for img in public_record.get("images", []):
@@ -118,41 +112,20 @@ def html_figure_entries(public_record: dict, base_dir: Path) -> list[dict]:
         data = p.read_bytes() if p and p.is_file() else None
         caption = (img.get("caption") or img.get("alt") or "").strip()
         out.append({"page": None, "kind": "figure", "caption": caption,
-                    "image": data, "ext": p.suffix.lstrip(".") if p else "",
-                    "anchor_text": (img.get("anchor_text") or "").strip(),
-                    "pairing_uncertain": False,
-                    "unlabeled": not caption})
+                    "image": data, "ext": p.suffix.lstrip(".") if p else ""})
     return out
 
 
 def locate_captions(entries: list[dict], full_text: str) -> None:
     """Anchor each entry's caption in the global normalized corpus (in place).
 
-    定位策略：
-    1. 先按图注原文精确定位（PDF 图注、网页 figcaption）；
-    2. 图注定位不到时（如网页 alt 文本不在正文里），退用图片前的正文锚点片段定位，
-       记 anchor_kind="context"——如实说明是上下文锚定而非图注锚定。
-
-    两种都失败则 char_start=null：图仍交付，但不参与能力卡挂接，绝不伪造位置。
+    Sets char_start/char_end to the caption's position in full_text, or null
+    when the caption cannot be located (e.g. split across a source boundary).
     """
     index: dict[str, int] = {}
     for m in find_figure_captions(full_text):
         index.setdefault(m["caption"], m["start"])
     for e in entries:
         pos = index.get(e["caption"], -1) if e["caption"] else -1
-        kind = "caption"
-        if pos < 0:
-            anchor = (e.get("anchor_text") or "").strip()
-            if anchor:
-                tail = anchor[-40:]
-                pos = full_text.find(tail)
-                if pos >= 0:
-                    kind = "context"
-        if pos >= 0:
-            e["char_start"] = pos
-            e["char_end"] = pos + len(e.get("caption") or "") if e.get("caption") else pos + 1
-            e["anchor_kind"] = kind
-        else:
-            e["char_start"] = None
-            e["char_end"] = None
-            e["anchor_kind"] = None
+        e["char_start"] = pos if pos >= 0 else None
+        e["char_end"] = (pos + len(e["caption"])) if pos >= 0 else None

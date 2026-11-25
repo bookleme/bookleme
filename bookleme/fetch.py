@@ -45,33 +45,8 @@ def image_ext(data: bytes) -> str:
     return ""
 
 
-def _check_url(url: str) -> None:
-    """入口校验：只允许 http/https，且拒绝内网/环回/元数据地址。
-
-    为什么必须查：urllib 默认注册了 FileHandler，`fetch file:///etc/passwd` 会
-    直接把本地文件读出来落进 sources/public/ —— 那不是「抓网页」，是任意文件读取器，
-    而且落盘后还会被下一次 run 自动当语料吃掉。
-    """
-    parsed = urllib.parse.urlparse(url)
-    scheme = (parsed.scheme or "").lower()
-    if scheme not in ("http", "https"):
-        raise ValueError(f"只支持 http/https 地址，收到 {scheme or '(空)'}：{url}")
-    host = (parsed.hostname or "").lower()
-    if not host:
-        raise ValueError(f"地址缺少主机名：{url}")
-    blocked_hosts = {"localhost", "127.0.0.1", "::1", "0.0.0.0",
-                     "169.254.169.254", "metadata.google.internal"}
-    if host in blocked_hosts or host.endswith(".localhost") or host.endswith(".internal"):
-        raise ValueError(f"拒绝抓取内网/环回/云元数据地址：{host}")
-    if re.match(r"^10\.", host) or re.match(r"^192\.168\.", host) \
-            or re.match(r"^172\.(1[6-9]|2\d|3[01])\.", host) \
-            or re.match(r"^169\.254\.", host):
-        raise ValueError(f"拒绝抓取内网地址：{host}")
-
-
 def _download(url: str, timeout: int = 30) -> tuple[bytes, str]:
     """Download a URL. urllib uses http_proxy/https_proxy env vars automatically."""
-    _check_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         ctype = resp.headers.get("Content-Type", "") or ""
@@ -116,22 +91,12 @@ class PageParser(HTMLParser):
         if tag == "figcaption":
             self._in_figcaption = True
         if tag == "img":
-            img = {"src": d.get("src", ""), "alt": d.get("alt", ""), "caption": "",
-                   "anchor_text": self._anchor_text()}
+            img = {"src": d.get("src", ""), "alt": d.get("alt", ""), "caption": ""}
             if self._fig_imgs is not None:
                 self._fig_imgs.append(img)
             else:
                 img["caption"] = img.get("alt", "")
                 self.images.append(img)
-
-    def _anchor_text(self, width: int = 80) -> str:
-        """图片之前的正文片段（逐字）——用于在编译语料里定位这张图的位置。
-
-        网页图片常常只有 alt（alt 文本不在正文里，无法在语料中定位），但图片前后的
-        正文一定在语料里：截取图前一小段原文作为锚点，就能定位到语料位置。
-        """
-        text = "".join(self.parts)
-        return text[-width:].strip()
 
     def handle_endtag(self, tag):
         if tag in ("script", "style") and self._skip:
@@ -225,8 +190,7 @@ def fetch_url(url: str, *, out_dir: Path | None = None, name: str | None = None,
                 fname = f"{slug}-{kept + 1:03d}.{ext}"
                 (img_dir / fname).write_bytes(blob)
                 imgs.append({"file": f"images/{fname}", "src": src,
-                             "alt": img.get("alt", ""), "caption": img.get("caption", ""),
-                             "anchor_text": img.get("anchor_text", "")})
+                             "alt": img.get("alt", ""), "caption": img.get("caption", "")})
                 kept += 1
         record = {
             "schema_version": "2.0", "kind": "html", "file": "",

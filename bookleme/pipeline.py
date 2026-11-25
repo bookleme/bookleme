@@ -13,7 +13,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,9 +28,8 @@ from .extract import SUPPORTED_EXTENSIONS, extract_source, merge
 from .extract.figures import extract_pdf_figures, html_figure_entries, locate_captions
 from .segment import segment_text
 from .router import route
-from .capabilities import attach_figure_refs, extract_capabilities, extract_figure_cards
-from .fidelity import (build_claim_ledger, build_fidelity_report, judge_capabilities,
-                      v1_cross_domain, verify_quotes)
+from .capabilities import attach_figure_refs, extract_capabilities
+from .fidelity import build_claim_ledger, build_fidelity_report, verify_quotes
 from .render import build_description, render_skill
 from .plugins import load_plugins, resolve_plugin
 from .validate import lint_skill_dir, run_copyright_gate, validate_skill
@@ -70,16 +68,6 @@ class Logger:
             fh.write(line + "\n")
         print(msg, flush=True)
 
-    def detail(self, msg: str) -> None:
-        """只进日志文件、不刷终端（中间产物的逐文件路径属于这类）。
-
-        终端只留「阶段级」信息；用户要的全部绝对路径在 run 结束后的汇总 JSON 里。
-        """
-        line = f"[{_now()}] {msg}"
-        self.lines.append(line)
-        with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-
 
 class PipelineError(RuntimeError):
     pass
@@ -93,21 +81,18 @@ class Pipeline:
         self.state = StateStore(STATE_PATH)
 
     # ---------- helpers ----------
-    def _write(self, path: Path, obj: dict, log: Logger, quiet: bool = False) -> None:
+    def _write(self, path: Path, obj: dict, log: Logger) -> None:
         dump_json(Path(path), obj)
         name = Path(path).name
         if name in SCHEMA_FOR:
             errors = schema_validate(obj, load_json(SCHEMA_DIR / SCHEMA_FOR[name]))
             if errors:
                 raise PipelineError(f"{name} 未通过 schema 校验：{errors[:5]}")
-        # 中间产物默认只进日志文件：终端只留「阶段级」信息，完整路径在末尾汇总里给
-        if not quiet:
-            log.detail(f"wrote {path}")
+        log(f"    wrote {path}")
 
     def _write_text(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # 临时文件名带进程号：并发跑多个流水线时共用同名 .tmp 会互相覆盖
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
 
@@ -138,25 +123,20 @@ class Pipeline:
 
         run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
         llm.reset_counters()  # per-run LLM 调用计数
-        t_start = time.monotonic()
         log_path = LOG_DIR / self.milestone / f"run-{run_id}.log"
         log = Logger(log_path)
         out_dir = OUT_DIR / run_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # 横幅只给「此刻有用」的信息：总量与日志路径。
-        # 不再打「预计 30-45 分钟」——实测大部分批次几秒就跑完，那个估计是误导。
-        log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(input_paths)} 个")
+        log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(input_paths)} 个；里程碑 {self.milestone}")
         log(f"[BATCH] 实时日志：{log_path}（进度 {PROGRESS_PATH} / {STATE_PATH}）")
-        progress_body = (f"# BookLeme 进度（最新批次 {run_id}）\n\n"
+        log("[BATCH] 预计完成：约 30-45 分钟（heuristic 估计，非承诺）")
+        self._write_text(PROGRESS_PATH,
+                         f"# BookLeme 进度（最新批次 {run_id}）\n\n"
                          f"- 计划总量：S0-S9 共 9 个 stage；输入源 {len(input_paths)} 个\n"
                          f"- 日志绝对路径：{log_path}\n"
-                         f"- LLM 配置指纹：{llm.config_fingerprint()}"
-                         f"（{llm.settings().get('source') or '未配置'}）\n\n"
+                         f"- 预计完成：约 30-45 分钟（估计）\n\n"
                          f"## Stage 记录\n")
-        self._write_text(PROGRESS_PATH, progress_body)
-        # 同时留一份本次 run 专属的进度文件：并发跑时 progress.md 会被互相覆盖
-        self._write_text(LOG_DIR / self.milestone / f"progress-{run_id}.md", progress_body)
 
         rights = user_rights or self.config["user_rights"]
         book_title = title or Path(input_paths[0]).stem
@@ -226,10 +206,8 @@ class Pipeline:
         # sources.json 是跨 run 共享 IR（内容须稳定）；provenance_manifest.json
         # 含 run_id / generated_at，必须按 run 隔离，否则不同 run 会串味。
         s0_paths = [cache / "sources.json", out_dir / "provenance_manifest.json"]
-        # 哈希必须含内容指纹：只含路径的话，重新抓取同一 URL（内容变了、路径没变）
-        # 不会让 S0 失效，旧 sources.json / figures.json 会被误当成新结果复用。
         s0_hash = stage_input_hash([DEFAULT_RUN_CONFIG, str(book_title), rights]
-                                   + [f"{s['path']}#{s['sha256']}" for s in sources])
+                                   + [s["path"] for s in sources])
         self.state.ensure_run(run_id, book_sha256, model_fingerprint,
                               engine_config_hash=stage_input_hash([self.config, self.router_cfg]))
         if self.state.should_skip(run_id, "S0", s0_hash, s0_paths):
@@ -326,9 +304,6 @@ class Pipeline:
                     "figure_id": fid, "source_id": e["source_id"], "page": e.get("page"),
                     "kind": e["kind"], "caption": e["caption"],
                     "char_start": e.get("char_start"), "char_end": e.get("char_end"),
-                    "anchor_kind": e.get("anchor_kind"),
-                    "pairing_uncertain": bool(e.get("pairing_uncertain")),
-                    "unlabeled": bool(e.get("unlabeled")),
                     "image_file": image_file,
                 })
             figures_obj = {"schema_version": "2.0", "book_sha256": book_sha256,
@@ -392,13 +367,7 @@ class Pipeline:
             self.state.mark(run_id, "S3", s3_hash, s3_paths,
                             degraded=router_result["override_source"] == "ambiguity",
                             note=f"top1={router_result['top1']} margin={router_result['margin']}")
-        # 体裁插件的额外必填字段由插件自己声明（capability_schema.genre_fields），
-        # 抽取阶段就要知道它们 —— 故此处提前加载插件，并把插件源码纳入 S4 哈希。
-        registry_s4, _ = load_plugins(extra_plugin_dir)
-        genre_names = "、".join(
-            f"{g}（{getattr(registry_s4.get(g), 'display_name_zh', '')}）"
-            for g in router_result["genres"]) or "无"
-        log(f"    体裁 {genre_names} → 引擎 {router_result['engines']} "
+        log(f"    体裁 {router_result['genres']} → 引擎 {router_result['engines']} "
             f"({router_result['override_source']})")
 
         # ---------------- S4 Capabilities ----------------
@@ -406,52 +375,19 @@ class Pipeline:
         s4_paths = [cache / "capabilities.json"]
         capability_sources = sorted((Path(__file__).parent / "capabilities").glob("*.py"))
         llm_sources = sorted((Path(__file__).parent / "llm").rglob("*"))
-        plugin_files_s4 = sorted(str(Path(getattr(p, "source_path", "")).resolve())
-                                 for p in registry_s4.values())
-        primary_genre = (router_result.get("genres") or ["knowledge_reference"])[0]
-        genre_fields = {}
-        for gid in ([primary_genre] + list(router_result.get("genres") or [])):
-            plugin = registry_s4.get(gid)
-            spec = getattr(plugin, "capability_schema", None) or {}
-            gf = spec.get("genre_fields")
-            if isinstance(gf, dict) and gf:
-                genre_fields = gf
-                break
-        if genre_fields:
-            log(f"    体裁额外必填字段：{'、'.join(genre_fields)}")
-        # LLM 生效配置进指纹：配了模型不重算、换模型指纹不变，都是「指标被当成同一次实验」
-        llm_fp = llm.config_fingerprint()
-        s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], s1_paths[4], DEFAULT_RUN_CONFIG,
-                                    llm_fp]
-                                   + capability_sources + llm_sources + plugin_files_s4)
+        s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], s1_paths[4], DEFAULT_RUN_CONFIG]
+                                   + capability_sources + llm_sources)
         if self.state.should_skip(run_id, "S4", s4_hash, s4_paths):
             log("S4 SKIP")
             caps = load_json(s4_paths[0])
         else:
             caps = extract_capabilities(full_text, segments["segments"], self.config,
-                                        book_title=book_title, genre_fields=genre_fields)
+                                        book_title=book_title)
             caps["book_sha256"] = book_sha256
             # genre_tags / engine_targets 是 per-run 的路由结果，不能写进共享
             # capabilities.json；保持为空数组，渲染阶段按本次 engines 过滤。
             # figure_refs：图注落在能力卡 char 区间内则挂接（2.0）。
             attach_figure_refs(caps, figures)
-            # 3.0：读图 → 能力卡（视觉模型）。未配置视觉模型 → 不产出任何解读（图仍交付）。
-            fig_cards = extract_figure_cards(figures, self.config, book_title=book_title,
-                                             full_text=full_text,
-                                             segments=segments["segments"],
-                                             genre_fields=genre_fields)
-            if fig_cards:
-                caps["capabilities"].extend(fig_cards)
-                # extractor 枚举只描述「正文卡的抽取方式」，图解读卡另计数量；
-                # 改写 extractor 会破坏 schema 枚举（如 "heuristic+figure-insight"）。
-                caps["figure_cards"] = len(fig_cards)
-                log(f"    读图生成能力卡 {len(fig_cards)} 张（图示 → 要点，视觉模型）")
-            # 每张卡记下**来源等级**（与 provenance 的 sources[].tier 同源），
-            # 免得下游把「抽取方式等级」误当来源等级写进 claim ledger。
-            # 必须在图解读卡并入之后再赋：否则新卡没有 source_tier，下游会退化成 C。
-            tier_by_sid = {s["source_id"]: s.get("tier", "C") for s in sources}
-            for cap in caps["capabilities"]:
-                cap["source_tier"] = tier_by_sid.get(cap.get("source_id", ""), "C")
             self._write(s4_paths[0], caps, log)
             self.state.mark(run_id, "S4", s4_hash, s4_paths,
                             degraded=caps["extractor"] == "heuristic",
@@ -465,10 +401,8 @@ class Pipeline:
         # 纳入 fidelity 源码：改指标定义 / 未验证假设表后必须自动失效缓存，
         # 否则旧 fidelity_report.json 会被误当成新代码产物。
         fidelity_sources = sorted((Path(__file__).parent / "fidelity").glob("*.py"))
-        llm_sources_s5 = sorted((Path(__file__).parent / "llm").rglob("*"))
-        s5_hash = stage_input_hash([s4_paths[0], s1_paths[0], DEFAULT_RUN_CONFIG,
-                                    llm.config_fingerprint()]
-                                   + fidelity_sources + llm_sources_s5)
+        s5_hash = stage_input_hash([s4_paths[0], s1_paths[0], DEFAULT_RUN_CONFIG]
+                                   + fidelity_sources)
         if self.state.should_skip(run_id, "S5", s5_hash, s5_paths):
             log("S5 SKIP")
             caps_v = load_json(s5_paths[0])
@@ -480,24 +414,8 @@ class Pipeline:
                 char_map.get("map", char_map) if isinstance(char_map, dict) else char_map,
                 self.config,
             )
-            # judge（可选）：groundedness / V2 / V3 的真实判定。
-            # 未配置 LLM → 不调用，指标保持 null（绝不用启发式假装有 judge 结果）。
-            judge_result = None
-            v1 = v1_cross_domain(caps_v, segments)
-            jcfg = self.config.get("llm_judge") or {}
-            if jcfg.get("enabled", True) and llm.available():
-                judge_result = judge_capabilities(caps_v, full_text, self.config,
-                                                  votes=int(jcfg.get("votes", 3)))
-                log(f"    judge 已运行：judged={judge_result['summary']['judged']}"
-                    f"（{judge_result['votes']} 票多数，fingerprint="
-                    f"{judge_result['model_fingerprint']}）")
-            else:
-                log("    judge 未运行（未配置 BOOKLEME_LLM_* 或 llm_judge.enabled=false）"
-                    "——groundedness/V2/V3 保持 null，不伪造")
-            ledger = build_claim_ledger(caps_v, book_sha256, str(cache / "slices"),
-                                        judge=judge_result, v1=v1)
-            fidelity = build_fidelity_report(caps_v, ledger, segments, quote_records,
-                                             self.config, judge=judge_result)
+            ledger = build_claim_ledger(caps_v, book_sha256, str(cache / "slices"))
+            fidelity = build_fidelity_report(caps_v, ledger, segments, quote_records, self.config)
             self._write(s5_paths[0], caps_v, log)
             self._write(s5_paths[1], ledger, log)
             self._write(s5_paths[2], fidelity, log)
@@ -612,21 +530,8 @@ class Pipeline:
             self._write(s7_paths[0], validation, log)
             self.state.mark(run_id, "S7", s7_hash, s7_paths)
             if not validation["all_passed"]:
-                # 报错要能直接读懂并知道下一步：哪道门、哪个值超了、怎么改
-                problems = []
-                for a in per_artifact:
-                    for chk in a.get("copyright_gate", {}).get("checks", []):
-                        if not chk.get("passed"):
-                            problems.append(f"{a['engine']} · {chk['name']}：实测 {chk.get('value')} "
-                                            f"超过上限 {chk.get('ceiling')}")
-                    for e in a.get("quick_validate_errors", []) or []:
-                        problems.append(f"{a['engine']} · 产物格式：{e}")
-                    for e in a.get("lint_errors", []) or []:
-                        problems.append(f"{a['engine']} · 版式：{e}")
-                raise PipelineError(
-                    "S7 硬门未过，产物不安装、不发布：\n  - "
-                    + "\n  - ".join(problems[:8])
-                    + f"\n  完整报告：{out_dir / 'validation_report.json'}")
+                failures = [a for a in per_artifact if not a["all_passed"]]
+                raise PipelineError(f"S7 硬门失败，产物不安装不发布：{json.dumps(failures, ensure_ascii=False)[:1200]}")
 
         # distribution decision as a start-flag gate, never asked mid-run
         if public and confirm_public != "PUBLISH":
@@ -731,6 +636,5 @@ class Pipeline:
             "llm_calls": llm.llm_calls,
         }
         log(f"[BATCH] 完成：{len(artifacts)} 个产物，all_passed={validation['all_passed']}；"
-            f"耗时 {time.monotonic() - t_start:.1f}s；"
             f"日志 {log_path}")
         return summary

@@ -156,15 +156,8 @@ cd bookleme
 # Zero third-party dependencies; Python ≥ 3.9 is enough
 python3 -m bookleme --version
 
-# Check the environment first (nothing for you to configure)
-python3 -m bookleme doctor
-
 # End to end: book → skill
 python3 -m bookleme run --input evals/cases/synthetic/coach_book.md --title "My First Book"
-
-# See what this run actually produced: single-file HTML inspector (open it offline)
-python3 -m bookleme inspect
-open out/<run_id>/inspect.html
 
 # Validate artifacts (official validator + own lint + copyright gates)
 python3 -m bookleme validate examples/coach
@@ -173,93 +166,16 @@ python3 -m bookleme validate examples/coach
 python3 -m unittest discover -s tests -v
 ```
 
-**Sourcing from the web and papers (since 2.0)**
-
-```bash
-python3 -m bookleme fetch https://arxiv.org/pdf/1706.03762   # paper PDF (with figures)
-python3 -m bookleme fetch https://example.com/article         # web page (with images)
-python3 -m bookleme run --input sources/public/xxx.pdf --title "Paper title"
-```
-
-Fetched material joins the next compile automatically; original figures are extracted into
-`assets/figures/` and linked to the matching capability cards.
-
-**Do I have to configure an LLM? No.**
-
-Calling a model at compile time (deeper card extraction, the fidelity judge, figure
-pre-filling) is an **optional enhancement, never a prerequisite**:
-
-- With nothing configured you still get artifacts; `groundedness` / `V2` / `V3` report
-  `null` and say so — no fabricated numbers.
-- If you want it: set any mainstream provider's standard env var (`OPENAI_API_KEY`,
-  `MOONSHOT_API_KEY`, `DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `ARK_API_KEY`, …) and it is
-  **detected automatically** — you never need to learn BookLeme-specific variable names.
-  `~/.bookleme/config.json` (an `llm` section) works too.
-- **Figure reading needs no compile-time vision model**: the skill package ships a
-  "read-figure task" section, and the agent that uses the skill (most models are natively
-  multimodal) looks at the figure itself when needed.
-
-```bash
-python3 -m bookleme doctor    # what was detected
-```
-
 **Common flags**
 
 ```bash
---engine auto|knowledge_pack|behavior_skill|both   # artifact shape (auto by default)
---genre <plugin_id>                                # force a genre (invalid values fail fast)
---no-router                                        # skip genre routing, emit both engines
+--engine auto|knowledge_pack|behavior_skill|both   # engine selection
+--genre <plugin_id>                                # force a genre
+--no-router                                        # disable routing, emit both engines
 --install                                          # install into the skill source of truth (off by default)
---user-rights owned|licensed|public_domain|unknown # only needed for public distribution
+--user-rights owned|licensed|public_domain|unknown # usage-rights declaration
 --public --confirm-public PUBLISH                  # public distribution (bare-word confirmation)
 ```
-
----
-
-<a id="figures"></a>
-
-## Figures: from "extracted" to "actually used"
-
-The most information-dense part of a book or paper is often its figures. Since 2.0 figures
-are first-class citizens rather than attached pictures:
-
-| Stage | What happens |
-|---|---|
-| Extract | Raster figures + captions per PDF page; `<figure>/<figcaption>` images from the web; vector figures honestly marked "caption only" |
-| Anchor | Captions located verbatim in the source; web images anchored by the preceding text (measured anchoring: 2/27 → **33/35**) |
-| Link | Attached to the **nearest capability card** (within 2000 chars) — the discussion right next to a figure is what it illustrates |
-| Ship | Images land in `assets/figures/`; `references/figures-index.md` lists anchoring state and page |
-| Read | The package carries a "read-figure task": the **agent** using the skill opens the image and answers from it |
-| Interpret (opt-in) | With a model detected, figures can be compiled straight into capability cards (`origin=figure`, tier B) |
-
-**Captions are not copied into the artifact**: caption text is source text — copying all 22
-would push the quote ratio to 13% (ceiling 3%) and the copyright gate would (correctly) block
-it. Verbatim captions and exact positions live in the shared IR `figures.json` instead.
-
----
-
-<a id="inspect"></a>
-
-## Inspector · `bookleme inspect`
-
-Artifacts used to be scattered across several JSON files and a pile of Markdown. The
-inspector puts the **verdict first** in one offline HTML file:
-
-```bash
-python3 -m bookleme inspect          # most recent run
-python3 -m bookleme inspect <run_id>  # a specific run
-open out/<run_id>/inspect.html
-```
-
-Seven sections: **Overview** (usable? · key numbers · one-click copy of absolute paths) ·
-**Figures** (gallery, anchoring state, click to enlarge) · **Cards** (search/filter, every
-card carries its verbatim anchor) · **Fidelity** (7 metrics, judge summary, collapsed
-unverified-assumptions) · **Gates** (the 6 hard gates with measured value vs ceiling) ·
-**Stages** (S0–S9 status) · **Sources**.
-
-Motion is designed around **state changes**, not components: 240 ms in / 150 ms out /
-120 ms hover-press; separate easings for enter, exit and press; only transform and opacity
-animate (no reflow, no jitter); `prefers-reduced-motion` collapses everything to instant.
 
 ---
 
