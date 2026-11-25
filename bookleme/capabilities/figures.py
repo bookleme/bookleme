@@ -19,9 +19,15 @@ _SIX = ("R_quote", "I_rephrase", "A1_author_case", "A2_user_trigger",
 
 
 def _render(template: str, values: dict) -> str:
-    for key, val in values.items():
-        template = template.replace("${" + key + "}", "" if val is None else str(val))
-    return re.sub(r"\$\{[^}]+\}", "", template)
+    """一次性替换占位符（正则回调）。
+
+    顺序 replace 会二次替换：原文里出现 `${context}` 这类字面量时会被后续轮次当成
+    真占位符替换掉（书稿里出现 `${...}` 很常见：Markdown 模板、代码、shell 变量）。
+    """
+    return re.sub(r"\$\{(\w+)\}",
+                  lambda m: "" if values.get(m.group(1)) is None
+                  else str(values[m.group(1)]),
+                  template)
 
 
 def _default_call(prompt_name: str, values: dict, image_path):

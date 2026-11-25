@@ -36,6 +36,11 @@ def load_plugins(extra_dir: str | None = None) -> tuple[dict[str, object], list[
 
     registry: dict[str, object] = {}
     diagnostics: list[dict] = []
+    if extra_dir and not Path(extra_dir).expanduser().is_dir():
+        # 目录不存在必须说出来：静默忽略等于骗用户「你的插件没生效是因为没有」
+        diagnostics.append({"path": str(extra_dir), "level": "external",
+                            "status": "error",
+                            "errors": ["插件目录不存在（已跳过该目录）"]})
     for level in PRIORITY:
         directory = dirs.get(level)
         if not directory or not directory.exists():

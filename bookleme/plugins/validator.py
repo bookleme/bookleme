@@ -73,13 +73,92 @@ def _check_state_machine(machine: dict) -> list[str]:
     return errors
 
 
+def _code_only(src: str) -> str:
+    """把注释与文档字符串挖空，只留可执行代码。
+
+    为什么：作者在注释里写「不要用 eval / 绝不 requests.get」也会被扫出来——
+    那不是风险，是说明书。早先版本因此对自家内置插件误报。
+    """
+    import ast
+    import io
+    import tokenize
+
+    lines = src.splitlines(keepends=True)
+    spans: list[tuple[int, int, int, int]] = []
+    # 1) 文档字符串（模块/类/函数体的第一个字符串常量）
+    try:
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            body = getattr(node, "body", None)
+            if not body:
+                continue
+            head = body[0]
+            if (isinstance(head, ast.Expr) and isinstance(head.value, ast.Constant)
+                    and isinstance(head.value.value, str)):
+                spans.append((head.value.lineno, head.value.col_offset,
+                              head.value.end_lineno, head.value.end_col_offset))
+    except (SyntaxError, ValueError):
+        pass
+    # 2) 注释
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                spans.append((tok.start[0], tok.start[1], tok.end[0], tok.end[1]))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+    out = list(lines)
+    for ln0, c0, ln1, c1 in spans:
+        for ln in range(ln0, min(ln1, len(out)) + 1):
+            if ln - 1 >= len(out):
+                break
+            line = out[ln - 1]
+            a = c0 if ln == ln0 else 0
+            b = c1 if ln == ln1 else len(line)
+            out[ln - 1] = line[:a] + (" " * max(0, b - a)) + line[b:]
+    return "".join(out)
+
+
+def _scan_unsafe(path: str) -> list[str]:
+    """扫描插件源码里的可执行危险形状（只扫代码，不扫注释与文档字符串）。"""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+    except OSError:
+        return []
+    try:
+        code = _code_only(src)
+    except Exception:
+        code = src
+    hits = _UNSAFE.findall(code)
+    # URL 出现在字符串里是合法的（文档、示例链接）
+    return [h for h in hits if not h.lower().startswith(("http://", "https://"))]
+
+
+def _field(plugin, name: str, kind, errors: list[str], default):
+    """取字段并做类型闸门：类型不对 → 记一条错误并返回安全默认值（不抛裸异常）。"""
+    value = getattr(plugin, name, None)
+    if value is None:
+        errors.append(f"{name} 不能为 None")
+        return default
+    if kind is dict and not isinstance(value, dict):
+        errors.append(f"{name} 必须是 dict")
+        return default
+    if kind is list and not isinstance(value, list):
+        errors.append(f"{name} 必须是 list")
+        return default
+    if kind is str and not isinstance(value, str):
+        errors.append(f"{name} 必须是字符串")
+        return default
+    return value
+
+
 def validate_plugin(plugin, path: str | None = None) -> list[str]:
     errors: list[str] = []
     for name in REQUIRED_FIELDS:
         if not hasattr(plugin, name):
             errors.append(f"缺少必填字段 {name}")
 
-    gid = getattr(plugin, "genre_id", "")
+    gid = getattr(plugin, "genre_id", "") or ""
     # 插件 id 必须与 configs/router.json 的体裁键一致（下划线命名）；
     # 生成的 SKILL.md frontmatter `name` 才要求严格 hyphen-case，由渲染层保证。
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", gid):
@@ -87,41 +166,43 @@ def validate_plugin(plugin, path: str | None = None) -> list[str]:
     if path and path.rsplit("/", 1)[-1] != f"{gid}.py":
         errors.append(f"插件文件名应为 {gid}.py，实际 {path}")
 
-    words = getattr(plugin, "trigger_words", [])
+    words = _field(plugin, "trigger_words", list, errors, [])
     if not (3 <= len(words) <= 5) or not _all_chinese(words):
         errors.append(f"trigger_words 必须是 3-5 个中文词，实际 {words!r}")
 
-    if len(getattr(plugin, "hard_constraints", [])) < 4:
+    hard = _field(plugin, "hard_constraints", list, errors, [])
+    if len(hard) < 4:
         errors.append("hard_constraints 至少 4 条")
-    if len(getattr(plugin, "anti_patterns", [])) < 1:
+    anti = _field(plugin, "anti_patterns", list, errors, [])
+    if len(anti) < 1:
         errors.append("anti_patterns 至少 1 条")
 
-    prompts = getattr(plugin, "eval_prompts", [])
-    if not any(p.get("type") == "negative" for p in prompts if isinstance(p, dict)):
+    prompts = _field(plugin, "eval_prompts", list, errors, [])
+    if not any(isinstance(p, dict) and p.get("type") == "negative" for p in prompts):
         errors.append("eval_prompts 必须含至少 1 个 type=negative 的负例")
 
-    routing = getattr(plugin, "routing_rules", {})
+    routing = _field(plugin, "routing_rules", dict, errors, {})
     if routing.get("insufficient_data_policy") != "ask":
         errors.append("routing_rules.insufficient_data_policy 必须为 'ask'（数据不足先追问）")
     if routing.get("unknown_intent_policy") not in ("ask", "decline"):
         errors.append("routing_rules.unknown_intent_policy 必须为 ask 或 decline")
 
-    voice = getattr(plugin, "voice_calibration", {})
+    voice = _field(plugin, "voice_calibration", dict, errors, {})
     for key in ("tone", "address_form", "forbidden_phrases", "verdict_ownership"):
         if key not in voice:
             errors.append(f"voice_calibration 缺少 {key}")
 
-    cp = getattr(plugin, "copyright_profile", {})
+    cp = _field(plugin, "copyright_profile", dict, errors, {})
     if cp.get("quote_char_limit", 999) > 150:
         errors.append("copyright_profile.quote_char_limit 必须 <= 150")
     if cp.get("allow_original_text") is not False:
         errors.append("copyright_profile.allow_original_text 必须为 false")
 
-    engines = set(getattr(plugin, "default_engines", []))
+    engines = set(_field(plugin, "default_engines", list, errors, []))
     if not engines or not engines.issubset(_ENGINES):
         errors.append(f"default_engines 必须是 {sorted(_ENGINES)} 的非空子集")
 
-    contract = getattr(plugin, "output_contract", {})
+    contract = _field(plugin, "output_contract", dict, errors, {})
     for key in ("artifact", "sections", "required_fields"):
         if key not in contract:
             errors.append(f"output_contract 缺少 {key}")
@@ -150,15 +231,8 @@ def validate_plugin(plugin, path: str | None = None) -> list[str]:
 
     source = getattr(plugin, "source_path", "") or path or ""
     if source:
-        try:
-            with open(source, "r", encoding="utf-8") as fh:
-                head = fh.read()
-            hits = _UNSAFE.findall(head)
-            # URLs are legitimate in documentation strings; only executable shapes are blocked.
-            blocked = [h for h in hits if not h.lower().startswith(("http://", "https://"))]
-            if blocked:
-                errors.append(f"安全扫描命中可疑动态执行/外传模式: {sorted(set(blocked))[:5]}")
-        except OSError:
-            pass
+        blocked = _scan_unsafe(source)
+        if blocked:
+            errors.append(f"安全扫描命中可疑动态执行/外传模式: {sorted(set(blocked))[:5]}")
 
     return errors

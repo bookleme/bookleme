@@ -101,22 +101,36 @@ def _context(full_text: str, quote: str, radius: int) -> str:
 
 
 def _majority(values: list[bool]) -> bool | None:
-    """多数票；无有效票返回 None（未知 ≠ 否）。"""
+    """多数票；**平票返回 None（未知）**——平票与全失败一样是「没判出来」。
+
+    不能把平票记成 False：3 票里 1 票因网络失败、剩 2 票各执一词（三个 persona
+    本就刻意对立，平票很常见）——若记成 False，unsupported_claim_rate 会直接变成
+    1.0，凭空宣称「这本书的方法论全是编的」。
+    """
     if not values:
         return None
-    return sum(1 for v in values if v) * 2 > len(values)
+    yes = sum(1 for v in values if v)
+    if yes * 2 == len(values):
+        return None          # 平票 = 未决
+    return yes * 2 > len(values)
 
 
 def _default_call(prompt_name: str, values: dict) -> dict:
-    """默认调用实现：加载版本化 prompt、渲染占位符、调用 chat_json。"""
+    """默认调用实现：加载版本化 prompt、渲染占位符、调用 chat_json。
+
+    占位符**一次性**替换（正则回调）：先逐个 replace 再清理剩余占位符的做法会二次
+    替换——原文里出现 `${context}` 这类字面量时，会被后续轮次当成真占位符替换掉
+    （书稿里出现 `${...}` 很常见：Markdown 模板、代码示例、LaTeX、shell 变量）。
+    """
     from ..llm import chat_json, load_prompt, split_prompt
     text = load_prompt(prompt_name)
     sys_part, user_part = split_prompt(text)
 
     def render(t: str) -> str:
-        for key, val in values.items():
-            t = t.replace("${" + key + "}", "" if val is None else str(val))
-        return re.sub(r"\$\{[^}]+\}", "", t)
+        return re.sub(r"\$\{(\w+)\}",
+                      lambda m: "" if values.get(m.group(1)) is None
+                      else str(values[m.group(1)]),
+                      t)
 
     return chat_json(render(user_part), system=render(sys_part))
 
@@ -133,6 +147,9 @@ def judge_capabilities(caps: dict, full_text: str, config: dict, *, votes: int =
     call = call or _default_call
     jcfg = config.get("llm_judge") or {}
     denylist = load_denylist()
+    # 有效票数 = 请求的票数与可用的 persona 数取小；报告里写**实际用了多少票**，
+    # 不能写「5 票多数」而实际只有 3 个角色在投票。
+    effective_votes = max(1, min(int(votes), len(PERSONAS)))
     results: dict[str, dict] = {}
     errors: list[str] = []
     for cap in caps.get("capabilities", []):
@@ -144,7 +161,7 @@ def judge_capabilities(caps: dict, full_text: str, config: dict, *, votes: int =
         v3_votes: list[bool] = []
         supports: list[str] = []
         v3_reasons: list[str] = []
-        for role, persona in PERSONAS[:max(1, votes)]:
+        for role, persona in PERSONAS[:effective_votes]:
             try:
                 obj = call("judge_v1", {
                     "persona_role": f"你是{role}。{persona}",
@@ -191,6 +208,10 @@ def judge_capabilities(caps: dict, full_text: str, config: dict, *, votes: int =
             "denylist_hits": hits,
         }
     judged = [r for r in results.values() if r["judged"]]
+    error_types: dict[str, int] = {}
+    for e in errors:
+        name = e.split(":")[0].split("/")[-1].strip() or "unknown"
+        error_types[name] = error_types.get(name, 0) + 1
     summary = {
         "capabilities": len(results),
         "judged": len(judged),
@@ -202,13 +223,18 @@ def judge_capabilities(caps: dict, full_text: str, config: dict, *, votes: int =
         "v3_unknown": sum(1 for r in judged if r["v3_pass"] is None),
         "denylist_flagged": sum(1 for r in results.values() if r["denylist_hits"]),
         "failed_calls": len(errors),
+        "error_types": error_types,
     }
     return {
         "enabled": True,
-        "model_fingerprint": model_fingerprint("judge_v1"),
-        "prompt_version": "judge_v1",
-        "votes": votes,
+        # 指纹绑定**两个** prompt：judge_v1 与 judge_v2_v1 都要算进来，
+        # 否则只换 V2 的 prompt 而指纹不变，指标会被误当成同一次实验。
+        "model_fingerprint": model_fingerprint("judge_v1+judge_v2_v1"),
+        "prompt_version": "judge_v1+judge_v2_v1",
+        "votes": effective_votes,
+        "votes_requested": int(votes),
         "results": results,
         "summary": summary,
         "errors": errors[:20],
+        "errors_truncated": len(errors) > 20,
     }

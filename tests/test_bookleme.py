@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "2.0.0")
+        self.assertEqual(__version__, "2.1.0")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -972,6 +972,205 @@ class TestGenreFieldContractAndAdr(unittest.TestCase):
             leftovers = list(Path(td).glob("*.tmp"))
             self.assertEqual(leftovers, [], "临时文件必须被 replace 掉")
             self.assertTrue(p.is_file())
+
+
+class TestZeroConfigAndInspector(unittest.TestCase):
+    """2.1：LLM 零配置自识别 + doctor 自检 + 编译产物检视台。"""
+
+    def test_llm_autodetects_standard_provider_env(self):
+        from unittest import mock
+        import bookleme.llm as llm_mod
+        with mock.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}, clear=False), \
+             mock.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}):
+            llm_mod.reset_counters()
+            s = llm_mod.settings()
+            self.assertTrue(llm_mod.available(), "标准厂商密钥环境变量应被自动识别，用户零配置")
+            self.assertEqual(s["base_url"], "https://api.openai.com/v1")
+            self.assertTrue(s["source"])
+            self.assertIn("OPENAI_API_KEY", s["source"])
+        llm_mod.reset_counters()
+
+    def test_llm_reads_config_file_and_env_wins(self):
+        from unittest import mock
+        import bookleme.llm as llm_mod
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.json"
+            cfg.write_text(json.dumps({"llm": {"base_url": "https://x/v1", "api_key": "k",
+                                               "model": "m", "api_key_env": "MY_KEY"}}),
+                           encoding="utf-8")
+            with mock.patch.object(llm_mod, "CONFIG_PATH", cfg), \
+                 mock.patch.dict("os.environ", {"MY_KEY": "from-env"}, clear=False):
+                llm_mod.reset_counters()
+                self.assertTrue(llm_mod.available(), "配置文件里的 api_key_env 应能取到密钥")
+                self.assertEqual(llm_mod.settings()["model"], "m")
+                with mock.patch.dict("os.environ", {"BOOKLEME_LLM_MODEL": "env-model"}):
+                    llm_mod.reset_counters()
+                    self.assertEqual(llm_mod.settings()["model"], "env-model",
+                                     "显式环境变量优先级最高")
+        llm_mod.reset_counters()
+
+    def test_doctor_reports_without_asking_user_to_configure(self):
+        import json as _json
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        out = subprocess.run(["python3", "-m", "bookleme", "doctor"], cwd=str(root),
+                             capture_output=True, text=True, timeout=120)
+        self.assertEqual(out.returncode, 0, out.stderr[-400:])
+        rep = _json.loads(out.stdout)
+        self.assertTrue(rep["ok"])
+        self.assertIn("llm", rep)
+        self.assertIn("hint", rep["llm"], "必须给出「不用配置也能用」的说明")
+        self.assertIn("next", rep)
+        self.assertTrue(rep["plugins"]["available"], "doctor 应报出可用体裁")
+
+    def test_inspector_renders_single_file_with_data(self):
+        from bookleme.inspect import collect, render
+        import bookleme.inspect as insp
+        runs = sorted((d.stat().st_mtime, d.name) for d in (ROOT / "out").iterdir() if d.is_dir())
+        self.assertTrue(runs, "out/ 下应有历史 run 可供检视")
+        run_id = runs[-1][1]
+        data = collect(run_id)
+        self.assertIn("figures", data)
+        self.assertIn("cards", data)
+        html = render(data)
+        self.assertIn("window.__DATA__", html)
+        self.assertNotIn("/*__DATA__*/null/*__DATA__*/", html, "数据占位符必须被替换")
+        self.assertIn("编译检视台", html)
+        # 单文件：除图片走相对路径外，不许有外链依赖
+        self.assertNotIn("<script src=", html)
+        self.assertNotIn("<link rel=\"stylesheet\"", html)
+
+    def test_inspector_escapes_script_breaking_payload(self):
+        from bookleme.inspect import render
+        html = render({"run_id": "x", "title": "</script><script>alert(1)</script>"})
+        self.assertNotIn("</script><script>alert(1)", html)
+
+    def test_inspector_cli_generates_file(self):
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        runs = sorted((d.stat().st_mtime, d.name) for d in (ROOT / "out").iterdir() if d.is_dir())
+        run_id = runs[-1][1]
+        out = subprocess.run(["python3", "-m", "bookleme", "inspect", run_id], cwd=str(root),
+                             capture_output=True, text=True, timeout=180)
+        self.assertEqual(out.returncode, 0, out.stderr[-400:])
+        target = ROOT / "out" / run_id / "inspect.html"
+        self.assertTrue(target.is_file())
+        self.assertGreater(target.stat().st_size, 10000)
+
+
+class TestReviewFixes(unittest.TestCase):
+    """2.1 审查轮修掉的缺陷，各加一条回归锁死。"""
+
+    def _caps(self):
+        return {"extractor": "heuristic", "capabilities": [{
+            "capability_id": "CAP-0001", "title": "T", "source_id": "SRC-001",
+            "span": {"segment_id": "seg-001", "char_start": 10, "char_end": 30},
+            "ria": {"R_quote": "先问三个问题再看选项", "I_rephrase": "按次序问三个问题再比较选项",
+                    "A1_author_case": "书中的用例", "A2_user_trigger": "当用户说『我不知道该选什么』时",
+                    "A3_steps": ["问一", "问二", "问三"], "B_not_applicable": "紧急场景不适用"},
+            "confidence": {"tier": "S", "score": 0.9}, "status": "verified",
+            "checks": {"quote_verified": True},
+        }]}
+
+    def test_judge_tie_is_unknown_not_false(self):
+        from bookleme.fidelity.judge import _majority
+        self.assertIsNone(_majority([True, False]), "平票必须是未知(None)，不能记成 False")
+        self.assertIsNone(_majority([]))
+        self.assertTrue(_majority([True, True, False]))
+        self.assertFalse(_majority([False, False, True]))
+
+    def test_judge_fingerprint_binds_both_prompts(self):
+        from bookleme.fidelity import judge_capabilities
+        seen = {}
+
+        def fake_call(prompt_name, values):
+            seen[prompt_name] = values
+            return {"grounded": True, "v3_pass": True} if prompt_name == "judge_v1" \
+                else {"v2_pass": True, "v2_question": "q", "v2_answer": "a"}
+
+        res = judge_capabilities(self._caps(), "正文 先问三个问题再看选项 结束", {},
+                                 votes=3, call=fake_call)
+        self.assertIn("judge_v2_v1", res["prompt_version"],
+                      "指纹必须同时绑定 V2 的 prompt，否则换 V2 prompt 指纹不变")
+        self.assertIn("judge_v1", res["prompt_version"])
+
+    def test_judge_reports_actual_vote_count(self):
+        from bookleme.fidelity import judge_capabilities
+
+        def fake_call(prompt_name, values):
+            return {"grounded": True, "v3_pass": True} if prompt_name == "judge_v1" \
+                else {"v2_pass": True}
+
+        res = judge_capabilities(self._caps(), "x 先问三个问题再看选项 y", {}, votes=9,
+                                 call=fake_call)
+        self.assertEqual(res["votes"], 3, "可用 persona 只有 3 个，报告必须写实际票数")
+        self.assertEqual(res["votes_requested"], 9)
+
+    def test_prompt_placeholder_not_resubstituted(self):
+        from bookleme.fidelity.judge import _default_call
+        from unittest import mock
+        captured = {}
+
+        def fake_chat(user, system="", **kw):
+            captured["user"] = user
+            captured["system"] = system
+            return {"ok": True}
+
+        with mock.patch("bookleme.llm.chat_json", fake_chat):
+            _default_call("judge_v1", {"context": "真实上下文", "title": "T",
+                                       "quote": "Q", "rephrase": "R",
+                                       "persona_role": "你是考据员"})
+        self.assertIn("真实上下文", captured["user"])
+        # 原文里的 ${context} 字面量不应被二次替换成真实上下文
+        self.assertNotIn("${context}", captured["user"])
+
+    def test_validator_survives_none_fields(self):
+        from bookleme.plugins.base import GenrePlugin
+        from bookleme.plugins.validator import validate_plugin
+        p = GenrePlugin(genre_id="x", display_name_zh="测试", version="1.0.0",
+                        router_rules=None, capability_schema=None, section_template=None,
+                        skill_template=None, hard_constraints=None, state_machine=None,
+                        output_contract=None, anti_patterns=None, eval_prompts=None,
+                        trigger_words=None, routing_rules=None, voice_calibration=None,
+                        copyright_profile=None, default_engines=None, engine_kind="behavior")
+        errors = validate_plugin(p)
+        self.assertTrue(errors, "None 字段必须被记成错误")
+        self.assertTrue(any("不能为 None" in e or "必须是" in e for e in errors), errors[:3])
+
+    def test_safety_scan_ignores_comments_and_docstrings(self):
+        from bookleme.plugins.validator import _scan_unsafe
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "p.py"
+            f.write_text('"""插件说明：这里绝不会用 eval，也不调用 requests.get。"""\n'
+                         '# 注释里提到 subprocess.run 也不该被拦\n'
+                         'X = 1\n', encoding="utf-8")
+            self.assertEqual(_scan_unsafe(str(f)), [],
+                             "注释与文档字符串里的危险字样不该被当成风险")
+            f.write_text('X = eval("1 + 1")\n', encoding="utf-8")
+            self.assertTrue(_scan_unsafe(str(f)), "真实可执行代码仍要拦住")
+
+    def test_llm_doctor_reports_missing_items_not_vague(self):
+        from bookleme import llm as llm_mod
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.json"
+            cfg.write_text(json.dumps({"llm": {"base_url": "https://x/v1"}}), encoding="utf-8")
+            with mock.patch.object(llm_mod, "CONFIG_PATH", cfg):
+                llm_mod.reset_counters()
+                d = llm_mod.describe()
+                self.assertFalse(d["available"])
+                self.assertEqual(d["missing"], ["api_key", "model"],
+                                 "必须指出缺哪一项，而不是笼统说没检测到")
+                self.assertIn("api_key", d["hint"])
+        llm_mod.reset_counters()
+
+    def test_configs_pass_their_schemas(self):
+        from bookleme.config import DEFAULT_RUN_CONFIG, ROUTER_CONFIG
+        for cfg_path, schema_name in ((DEFAULT_RUN_CONFIG, "default.run.schema.json"),
+                                      (ROUTER_CONFIG, "router.schema.json")):
+            errors = schema_validate(load_json(cfg_path), load_json(SCHEMA_DIR / schema_name))
+            self.assertEqual(errors, [], f"{cfg_path.name} 不合 schema：{errors}")
 
 
 if __name__ == "__main__":

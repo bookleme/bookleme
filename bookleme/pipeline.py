@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -69,6 +70,16 @@ class Logger:
             fh.write(line + "\n")
         print(msg, flush=True)
 
+    def detail(self, msg: str) -> None:
+        """只进日志文件、不刷终端（中间产物的逐文件路径属于这类）。
+
+        终端只留「阶段级」信息；用户要的全部绝对路径在 run 结束后的汇总 JSON 里。
+        """
+        line = f"[{_now()}] {msg}"
+        self.lines.append(line)
+        with self.path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+
 
 class PipelineError(RuntimeError):
     pass
@@ -82,14 +93,16 @@ class Pipeline:
         self.state = StateStore(STATE_PATH)
 
     # ---------- helpers ----------
-    def _write(self, path: Path, obj: dict, log: Logger) -> None:
+    def _write(self, path: Path, obj: dict, log: Logger, quiet: bool = False) -> None:
         dump_json(Path(path), obj)
         name = Path(path).name
         if name in SCHEMA_FOR:
             errors = schema_validate(obj, load_json(SCHEMA_DIR / SCHEMA_FOR[name]))
             if errors:
                 raise PipelineError(f"{name} 未通过 schema 校验：{errors[:5]}")
-        log(f"    wrote {path}")
+        # 中间产物默认只进日志文件：终端只留「阶段级」信息，完整路径在末尾汇总里给
+        if not quiet:
+            log.detail(f"wrote {path}")
 
     def _write_text(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,19 +137,20 @@ class Pipeline:
 
         run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
         llm.reset_counters()  # per-run LLM 调用计数
+        t_start = time.monotonic()
         log_path = LOG_DIR / self.milestone / f"run-{run_id}.log"
         log = Logger(log_path)
         out_dir = OUT_DIR / run_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(input_paths)} 个；里程碑 {self.milestone}")
+        # 横幅只给「此刻有用」的信息：总量与日志路径。
+        # 不再打「预计 30-45 分钟」——实测大部分批次几秒就跑完，那个估计是误导。
+        log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(input_paths)} 个")
         log(f"[BATCH] 实时日志：{log_path}（进度 {PROGRESS_PATH} / {STATE_PATH}）")
-        log("[BATCH] 预计完成：约 30-45 分钟（heuristic 估计，非承诺）")
         self._write_text(PROGRESS_PATH,
                          f"# BookLeme 进度（最新批次 {run_id}）\n\n"
                          f"- 计划总量：S0-S9 共 9 个 stage；输入源 {len(input_paths)} 个\n"
-                         f"- 日志绝对路径：{log_path}\n"
-                         f"- 预计完成：约 30-45 分钟（估计）\n\n"
+                         f"- 日志绝对路径：{log_path}\n\n"
                          f"## Stage 记录\n")
 
         rights = user_rights or self.config["user_rights"]
@@ -371,7 +385,13 @@ class Pipeline:
             self.state.mark(run_id, "S3", s3_hash, s3_paths,
                             degraded=router_result["override_source"] == "ambiguity",
                             note=f"top1={router_result['top1']} margin={router_result['margin']}")
-        log(f"    体裁 {router_result['genres']} → 引擎 {router_result['engines']} "
+        # 体裁插件的额外必填字段由插件自己声明（capability_schema.genre_fields），
+        # 抽取阶段就要知道它们 —— 故此处提前加载插件，并把插件源码纳入 S4 哈希。
+        registry_s4, _ = load_plugins(extra_plugin_dir)
+        genre_names = "、".join(
+            f"{g}（{getattr(registry_s4.get(g), 'display_name_zh', '')}）"
+            for g in router_result["genres"]) or "无"
+        log(f"    体裁 {genre_names} → 引擎 {router_result['engines']} "
             f"({router_result['override_source']})")
 
         # ---------------- S4 Capabilities ----------------
@@ -379,9 +399,6 @@ class Pipeline:
         s4_paths = [cache / "capabilities.json"]
         capability_sources = sorted((Path(__file__).parent / "capabilities").glob("*.py"))
         llm_sources = sorted((Path(__file__).parent / "llm").rglob("*"))
-        # 体裁插件的额外必填字段由插件自己声明（capability_schema.genre_fields），
-        # 抽取阶段就要知道它们 —— 故 S4 提前加载插件，并把插件源码纳入哈希。
-        registry_s4, _ = load_plugins(extra_plugin_dir)
         plugin_files_s4 = sorted(str(Path(getattr(p, "source_path", "")).resolve())
                                  for p in registry_s4.values())
         primary_genre = (router_result.get("genres") or ["knowledge_reference"])[0]
@@ -578,8 +595,21 @@ class Pipeline:
             self._write(s7_paths[0], validation, log)
             self.state.mark(run_id, "S7", s7_hash, s7_paths)
             if not validation["all_passed"]:
-                failures = [a for a in per_artifact if not a["all_passed"]]
-                raise PipelineError(f"S7 硬门失败，产物不安装不发布：{json.dumps(failures, ensure_ascii=False)[:1200]}")
+                # 报错要能直接读懂并知道下一步：哪道门、哪个值超了、怎么改
+                problems = []
+                for a in per_artifact:
+                    for chk in a.get("copyright_gate", {}).get("checks", []):
+                        if not chk.get("passed"):
+                            problems.append(f"{a['engine']} · {chk['name']}：实测 {chk.get('value')} "
+                                            f"超过上限 {chk.get('ceiling')}")
+                    for e in a.get("quick_validate_errors", []) or []:
+                        problems.append(f"{a['engine']} · 产物格式：{e}")
+                    for e in a.get("lint_errors", []) or []:
+                        problems.append(f"{a['engine']} · 版式：{e}")
+                raise PipelineError(
+                    "S7 硬门未过，产物不安装、不发布：\n  - "
+                    + "\n  - ".join(problems[:8])
+                    + f"\n  完整报告：{out_dir / 'validation_report.json'}")
 
         # distribution decision as a start-flag gate, never asked mid-run
         if public and confirm_public != "PUBLISH":
@@ -684,5 +714,6 @@ class Pipeline:
             "llm_calls": llm.llm_calls,
         }
         log(f"[BATCH] 完成：{len(artifacts)} 个产物，all_passed={validation['all_passed']}；"
+            f"耗时 {time.monotonic() - t_start:.1f}s；"
             f"日志 {log_path}")
         return summary

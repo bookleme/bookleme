@@ -16,11 +16,11 @@
 | 用户 | `$ROOT/bookleme/plugins/user/<genre_id>.py` |
 | 外部 | `--plugin-dir <dir>` / `BOOKLEME_PLUGIN_DIR` 指向目录下的 `<genre_id>.py` |
 
-每个文件定义 `PLUGIN = GenrePlugin(...)`（实际为 `bookleme/plugins/base.py` 的 dataclass；文档沿用 Protocol 一词指契约）：**16 个必填字段**（对象属性）+ **2 个方法** `render(ctx)` / `validate(ctx)`。`ctx` 为渲染上下文（capabilities / claim_ledger / book 元数据 / slug / `output_contract` 解析结果）。
+每个文件定义 `PLUGIN = GenrePlugin(...)`（实际为 `bookleme/plugins/base.py` 的 dataclass；文档沿用 Protocol 一词指契约）：**18 个必填字段**（对象属性）+ **2 个方法** `render(ctx)` / `validate(ctx)`。`ctx` 为渲染上下文（capabilities / claim_ledger / book 元数据 / slug / `output_contract` 解析结果）。
 
 ---
 
-## 2. 16 个必填字段完整表
+## 2. 18 个必填字段完整表
 
 `bookleme plugin validate` 逐项硬校验，**缺一即失败**（退出码非 0，不进入 S6）。
 
@@ -42,6 +42,8 @@
 | 14 | `routing_rules` | object | 必须含 `unknown_intent_policy` 与 `insufficient_data_policy: "ask"`（先追问、不假设填充） | 缺失或 `insufficient_data_policy != "ask"`：`validate` 失败 |
 | 15 | `voice_calibration` | object | 补齐上游「有概念无字段」缺口，子字段：`tone` / `address_form` / `forbidden_phrases[]` / `verdict_ownership`（`user` \| `evidence_bound`） | 缺失任一子字段：`validate` 失败 |
 | 16 | `copyright_profile` | object | `quote_char_limit ≤ 150`（int）、`allow_original_text: false`（bool **严格 false**） | `quote_char_limit > 150` 或 `allow_original_text !== false`：`validate` 失败，S5 / S7 版权门拒绝 |
+| 17 | `default_engines` | list[str] | 声明本插件支持的引擎：`knowledge_pack` / `behavior_skill` 的非空子集；S6 按此决定出几份产物 | 缺失或含未知引擎：`validate` 失败 |
+| 18 | `engine_kind` | str | `behavior`（有状态机、有对话流程）或 `knowledge`（检索型，无状态机）；决定状态机可达性检查是否适用 | 缺失或取值非法：`validate` 失败 |
 
 ### 2.1 关键硬断言细则
 
@@ -116,7 +118,7 @@
 
 ### 4.3 `bookleme plugin validate` 检查项
 
-1. 16 个必填字段**全部存在**（缺一即失败）；
+1. 18 个必填字段**全部存在**（缺一即失败）；
 2. 各字段类型与 2.1 约束逐项校验（`genre_id` 正则 `^[a-z0-9][a-z0-9_-]*$` + 与文件名严格同名、`hard_constraints ≥ 4`、`quote_char_limit ≤ 150`、`allow_original_text === false` 等）；
 3. `state_machine` 可达性（2.1 四条）；
 4. `eval_prompts` 含 ≥1 negative；

@@ -11,7 +11,7 @@ from bookleme.plugins.base import GenrePlugin
 PLUGIN = GenrePlugin(
     genre_id="professional_analysis",
     display_name_zh="财报分析流水线",
-    version="2.0.0",
+    version="2.1.0",
     router_rules={"source": "configs/router.json", "note": "权重外置，插件不硬编码"},
     capability_schema={
         # RIA++ 六字段 + 本体裁在 PLUGIN_SPEC §3.2 强制的两个结论级字段。

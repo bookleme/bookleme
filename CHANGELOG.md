@@ -1,10 +1,72 @@
 # Changelog
 
-## 未发布（2.1.0 候选 · 分支 feat/2.0）— judge 真值 + 读图能力卡 + 插件内置化
+## 2.1.0 (2026-11-25) — 用户体验收口：零配置、可检视、动效规范化
 
-三项按优先级推进，**版本号不变、不发 Release、不打 tag**，待实测通过后再发 2.1.0。
+一句话：**复杂留给我们系统，不留给用户**。这一版把「要用户理解的事」全部收回系统，
+把「看不清结果」变成一个能打开的页面，并按状态变化重做了整套动效语言。
 
 ### 亮点
+
+- **大模型配置不再需要用户懂**（`bookleme/llm/__init__.py`）
+  - 自动识别常见厂商的**标准环境变量**（`OPENAI_API_KEY` / `MOONSHOT_API_KEY` /
+    `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `ARK_API_KEY` / `ZHIPU_API_KEY` /
+    `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY` / `GROQ_API_KEY` / `XAI_API_KEY`），
+    端点用各厂默认的 OpenAI 兼容地址；也读 `~/.bookleme/config.json` 的 `llm` 段
+    （可写 `api_key_env` 指向别的环境变量，密钥不必落盘）；`BOOKLEME_LLM_*` 仍是最高优先。
+  - 编译期调模型**始终是可选增强**：没有配置照常出产物，`groundedness`/`V2`/`V3`
+    如实写 `null` 并注明「未接入，不伪造」。
+- **读图交给运行时智能体**（产物侧）：技能包里新增「读图任务」区块 + SKILL.md 工作流里的
+  读图步骤——由**使用该技能的智能体**（多数模型原生支持多模态）亲自看图作答，
+  编译期不再要求配视觉模型。这才符合「这套东西本来就是给大模型用的」。
+- **`bookleme doctor`（新子命令）**：一次体检说清环境、识别到的 LLM、可用体裁、
+  最近一次 run 的结论与下一步；**不需要用户先配置什么**。
+- **`bookleme inspect <run_id>`（新子命令）**：编译产物检视台——单文件、零依赖、离线可开的
+  HTML，七个分区（概览 / 图示 / 能力卡 / 忠实度 / 门禁 / 阶段 / 来源）。
+  - 动效按**状态变化**设计而非按部件：进入 240ms / 退出 150ms / 悬停与按压 120ms；
+    缓动分进入（ease-out）、退出（ease-in）、按压（spring）；只动 transform 与 opacity，
+    不产生重排与抖动；`prefers-reduced-motion` 下全部降为瞬时。
+  - 数值跳动用 rAF 缓动并配等宽数字（tabular-nums）防抖动；面板切换用交叉淡入 + 4px 位移；
+    灯箱用共享元素过渡（从缩略图位置长出来）。
+  - 深浅色走 CSS 变量 + `prefers-color-scheme` + 手动切换；390px 手机视口到宽屏都成立。
+  - 只读既有 JSON 产物，不重算、不改口径；图注原文不进页面（版权纪律），只给图与定位信息。
+- **权利默认改为「未确认」**（`configs/default.run.json`、`provenance.py`）
+  - 此前默认 `user_rights: "owned"` —— 等于**系统替用户默认认领所有权**。
+  - 现在默认 `unknown`：**私有自用照常**（安装由显式 `--install` 发起），
+    但**禁止公开分发**；要公开需显式声明权利并加 `--public --confirm-public PUBLISH`。
+  - 「分发决策」只管公开与否，不再连带阻断私有安装——这两件事本来就不该混为一谈。
+
+### Fixed
+
+- **`bookleme eval` 必崩**：`inspect` 分支里的局部 `from .config import OUT_DIR`
+  让整个 `main()` 把它当局部变量 → 任何 `eval` 调用都 `UnboundLocalError`。已修。
+- **检视台表头被当源码打印**：用 `createElement('thead', null, '<tr>…')` 塞 HTML 字符串
+  不会解析成标签，页面把表头源码原样显示。改为 DOM 构造（实测截图才发现）。
+- **检视台首屏数字错到 2800%**：`groundedness` 取了 judge 的**卡数**却按百分比格式化；
+  改取指标表里的比率。
+- **手机端横向溢出 235px**：长书名把页头撑宽，主题按钮被顶出视口点不到；窄屏改省略号 + nowrap。
+- **`--genre` 填错静默回落**：现在开跑前就报错并列出可用体裁。
+- **`--plugin-dir` 指向不存在目录静默忽略**：现在明确报错。
+- **`--public` 缺裸词确认要等流水线跑完才报错**：校验前移到 CLI 入口。
+- **S7 失败信息是截断的 JSON**：改为「哪道门 / 实测值 / 上限 / 怎么改」的可读清单 + 报告路径。
+- **终端 17/38 行是逐文件 `wrote` 路径**：中间产物改为只进日志文件，终端只留阶段级信息，
+  完整绝对路径仍在末尾汇总 JSON 里。
+- **「预计完成 30-45 分钟」的假承诺**：实测多数批次几秒跑完，删掉，改为结束时给真实耗时。
+- **`--dry-run` 是哑参数**（默认本就不安装）：保留兼容但明确标注废弃并提示一次。
+- **同名能力卡在 topic-index 里无法区分**：同名自动加图 ID / 序号后缀。
+- **死文件**：`cheatsheet.md` / `index-guide.md` 生成了却没人指路 → 挂进 topic-index。
+- **检视台数据源取错**：阶段状态在 `state.json`、judge 摘要在 `cache/<sha>/fidelity_report.json`
+  （原先都从 `metrics.json` 取，永远取不到）；补「这次 run 没跑完」的显式状态。
+- **tier 语义混用**：卡片等级是**抽取方式**的可信度（S 确定性 / B 模型 / C 启发式），
+  与来源等级（S/A/B/C）不是一回事 → 界面分栏改名，筛选项去掉不存在的取值。
+
+### 回归
+
+新增 6 项测试（LLM 零配置自识别、配置文件读取与优先级、doctor 自检、
+检视台单文件生成、数据注入转义、CLI 生成检视台）。**共 66 项全过**。
+
+#### 2.1.0 也包含（此前的 3.0 候选）：judge 真值 + 读图能力卡 + 插件内置化
+
+#### 亮点
 
 - **体裁额外必填字段从「声明」变成「契约」**：插件用
   `capability_schema.genre_fields` 声明本体裁专属字段（decision_checklist 的
@@ -44,7 +106,7 @@
   结构化规则 + 《决策单》输出契约）。加载器现有 4 个内置体裁，`--genre` 可指定，
   auto 路由可命中（`configs/router.json` 早已预留这两个体裁的权重与先验）。
 
-### Fixed
+#### Fixed
 
 - **ADR-002 映射不一致**：`resolve_plugin` 原先把 `knowledge_pack` 引擎硬编码指向
   `knowledge_reference`，与冻结 ADR「路由取 top1，引擎 = 插件 `default_engines`」不符
@@ -70,7 +132,7 @@
   现临时文件名带进程号隔离。
 - `schema_check` 补 `pattern/minLength/maxLength` 执法（2.0 已修，本轮沿用）。
 
-### 回归
+#### 回归
 
 新增 16 项测试（图注锚定两种方式、V2 fresh-context 不带上下文、投票失败=未知、
 V1 确定性、denylist、ledger 真实 V1/V2/V3、未接 judge 仍为 null、读图卡结构与
