@@ -170,9 +170,8 @@ python3 -m bookleme doctor
 # 端到端：书 → Skill
 python3 -m bookleme run --input evals/cases/synthetic/coach_book.md --title "我的第一本书"
 
-# 看看这次到底编译出了什么：单文件 HTML 检视台（双击即可打开）
-python3 -m bookleme inspect
-open out/<run_id>/inspect.html
+# 这次编出来的技能能不能用：能答什么 / 照不照做 / 哪里薄
+python3 -m bookleme check
 
 # 校验产物（官方校验器 + 自有 lint + 版权硬门）
 python3 -m bookleme validate examples/coach
@@ -184,12 +183,20 @@ python3 -m unittest discover -s tests -v
 **从网上与论文取材**（2.0 起）：
 
 ```bash
-python3 -m bookleme fetch https://arxiv.org/pdf/1706.03762   # 论文 PDF（含图）
-python3 -m bookleme fetch https://example.com/article         # 网页（含配图）
-python3 -m bookleme run --input sources/public/xxx.pdf --title "论文标题"
+# 直接给网址：自动抓取为公开源（tier B）再编译，不必先 fetch 再记路径
+python3 -m bookleme run --input https://arxiv.org/pdf/1706.03762 --title "论文标题"
+
+# 只抓不编（想先看看抓到了什么）
+python3 -m bookleme fetch https://example.com/article
+
+# 目录也行：自动摊平里面支持的文档
+python3 -m bookleme run --input ./我的书稿目录 --title "书名"
 ```
 
-抓来的资料会自动参与下一次编译；原书图片会被提取成 `assets/figures/` 资产并挂到对应能力卡。
+**公开源默认不混入**：以前只要 fetch 过一次，之后每次 run 都会把那些内容悄悄并进语料
+（书名是你的、覆盖章节和图却是别人的）。现在只纳入**本次通过 URL 抓取的**；
+要连同历史公开源一起编译，显式加 `--include-public`。
+原书图片会提取成 `assets/figures/` 并挂到对应能力卡。
 
 **常用参数**
 
@@ -198,6 +205,7 @@ python3 -m bookleme run --input sources/public/xxx.pdf --title "论文标题"
 --genre <plugin_id>                                # 强制体裁（默认由路由判定，填错会直接报错并列出可用值）
 --no-router                                        # 跳过体裁判定，双引擎全出
 --install                                          # 写入技能真源（默认关闭，只出产物）
+--include-public                                   # 连同 sources/public 的历史公开源一起编译（默认只编本次输入）
 --user-rights owned|licensed|public_domain|unknown # 仅在要公开分发时才需要声明
 --public --confirm-public PUBLISH                  # 公开分发（裸词确认）
 ```
@@ -239,30 +247,35 @@ python3 -m bookleme doctor    # 看当前识别到什么
 
 ---
 
-<a id="inspect"></a>
+<a id="check"></a>
 
-## 检视台 · `bookleme inspect`（开发者工具，不属于产物）
+## 验收 · `bookleme check`（这次到底得到了什么）
 
-> **它是什么**：一个**离线开发工具**，帮你看清「这次编译到底得到了什么」。
-> **它不是什么**：不是技能的一部分，不进产物、不被智能体读取、不影响运行时体验。
-> 技能真正的「界面」是下一节说的**对话与交付契约**。
-> 用不上就删掉 `bookleme/inspect.py` + `bookleme/inspector_template.html` + CLI 子命令，核心功能不受影响。
-
-编译产物原本散在几个 JSON 和一堆 Markdown 里，要看懂「这次到底得到了什么」只能手工翻文件。
-检视台把**结论放在最前面**，单文件、零依赖、离线可开：
+编译产物散在几个 JSON 和一堆 Markdown 里。`check` 只回答三个用户真正关心的问题，
+**第一行就是判决**：
 
 ```bash
-python3 -m bookleme inspect          # 默认最近一次 run
-python3 -m bookleme inspect <run_id>  # 指定
-open out/<run_id>/inspect.html
+python3 -m bookleme check              # 默认最近一次 run
+python3 -m bookleme check <run_id>     # 指定
+python3 -m bookleme check --json       # 给机器；--strict 把「可改进」也算失败（CI 用）
 ```
 
-七个分区：**概览**（能不能用 · 关键数 · 产物路径一键复制）· **图示**（图库 + 锚定状态 + 点开看大图）·
-**能力卡**（可搜可筛，每张卡带逐字锚点与体裁字段）· **忠实度**（7 指标 + judge 摘要 + 未验证假设折叠）·
-**门禁**（6 条硬门的实测值与上限）· **阶段**（S0–S9 每段状态与备注）· **来源**（源清单与权利级别）。
+```
+run ux3-clean · 可直接用
+抽取方式 deterministic-markup · LLM 调用 0 次
 
-深浅色跟随系统也可手动切换；手机上单列、宽屏多列；动画只用 transform/opacity，
-`prefers-reduced-motion` 下全部降级为瞬时。
+[knowledge_pack] 人生设计练习册·框架速查
+  框架：6 个 · 可照着做 6/6 · 出处可逐字定位 6/6
+  能回答：重力问题与可设计的真问题 / 一问一答的追问节奏 / …
+  不能答：书中未涉及的问题（技能会明确回答「书里没讲」）；需要专业资质判断的问题
+```
+
+判决只有三种：**可直接用** / **能用，有需要留意的地方** / **不建议用（先修硬问题）**。
+硬问题指「技能会因此出错」的事：分片没有可逐字定位的出处、索引指向不存在的文件、
+SKILL.md 缺章节或没写「书里没讲」。薄处指「能用但会变弱」的事：图没锚定、
+缺 smoke 用例、索引漏了分片。
+
+> 没有 Web 界面。技能真正的「界面」是**它在大模型里的表现**，见下一节。
 
 ---
 

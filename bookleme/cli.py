@@ -23,7 +23,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="运行 S0-S9 编译流水线")
-    run.add_argument("--input", nargs="+", required=True, help="本地有权文件路径（可多个）")
+    run.add_argument("--input", nargs="+", required=True,
+                     help="本地有权文件、目录，或 http(s) 网址（可多个）；目录会自动摊平")
     run.add_argument("--engine", choices=["auto", "knowledge_pack", "behavior_skill", "both"], default=None,
                      help="产物形态；默认按体裁自动决定，一般不用指定")
     run.add_argument("--genre", default=None,
@@ -41,6 +42,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--public", action="store_true", help="申请公开分发（需同时给 --confirm-public PUBLISH）")
     run.add_argument("--confirm-public", default=None, help="公开分发的裸词确认：PUBLISH")
     run.add_argument("--plugin-dir", default=None, help="额外的体裁插件目录（不存在会明确报错，不再静默忽略）")
+    run.add_argument("--include-public", action="store_true",
+                     help="把 sources/public 里历史抓取的公开源一并编译（默认只编译本次输入）")
     run.add_argument("--run-id", default=None)
 
     plugin = sub.add_parser("plugin", help="体裁插件工具")
@@ -72,9 +75,11 @@ def _build_parser() -> argparse.ArgumentParser:
     doc = sub.add_parser("doctor", help="自检：环境、LLM 可用性、最近一次运行（无需你配置任何东西）")
     doc.add_argument("--run-id", default=None, help="指定要体检的 run（默认最近一次）")
 
-    ins = sub.add_parser("inspect", help="生成编译产物检视台（单文件 HTML，离线可看）")
-    ins.add_argument("run_id", nargs="?", default=None, help="run id（默认最近一次）")
-    ins.add_argument("--open", action="store_true", help="生成后直接打开")
+    chk = sub.add_parser("check", help="这次编出来的技能能不能用：能答什么、照不照做、哪里薄")
+    chk.add_argument("run_id", nargs="?", default=None, help="run id（默认最近一次）")
+    chk.add_argument("--json", action="store_true", help="输出 JSON（默认给人话版）")
+    chk.add_argument("--strict", action="store_true",
+                     help="把「可改进」也算失败（用于 CI；默认只有硬问题才返回 1）")
     return parser
 
 
@@ -300,9 +305,9 @@ def main(argv: list[str] | None = None) -> int:
                 install=args.install, title=args.title, author=args.author,
                 isbn=args.isbn, language=args.language, user_rights=args.user_rights,
                 public=args.public, confirm_public=args.confirm_public,
-                extra_plugin_dir=args.plugin_dir,
+                extra_plugin_dir=args.plugin_dir, include_public=args.include_public,
             )
-        except PipelineError as exc:
+        except (FileExistsError, PipelineError) as exc:
             # 失败也要给出「东西在哪、怎么继续」——只留一句报错等于把人扔在半路
             from datetime import datetime as _dt
             effective_run = args.run_id or _dt.now().strftime("%Y%m%d-%H%M%S")
@@ -312,6 +317,10 @@ def main(argv: list[str] | None = None) -> int:
             if empty:
                 out_dir.rmdir()          # 没产出东西就别留空目录冒充「有结果」
             print(f"[ERROR] {exc}", file=sys.stderr)
+            if isinstance(exc, FileExistsError):
+                # 安装目标已存在是「人事」，不该以 Python 栈的形式砸给用户
+                print("        想覆盖：先删掉上面那个目录再跑；或加 --run-id 换一个 run。",
+                      file=sys.stderr)
             print(f"        run_id : {effective_run}", file=sys.stderr)
             if not empty:
                 print(f"        产物   : {out_dir}", file=sys.stderr)
@@ -322,26 +331,29 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "doctor":
         return _doctor(args.run_id)
-    if args.command == "inspect":
-        from .inspect import write
+    if args.command == "check":
+        from .check import check_run, format_report
         run_id = args.run_id
         if not run_id:
-            runs = sorted((d.stat().st_mtime, d.name) for d in OUT_DIR.iterdir() if d.is_dir())
+            runs = sorted((d.stat().st_mtime, d.name) for d in OUT_DIR.iterdir() if d.is_dir()) \
+                if OUT_DIR.exists() else []
             if not runs:
                 print("[ERROR] 还没有任何 run，先跑一次 `bookleme run`。", file=sys.stderr)
                 return 1
             run_id = runs[-1][1]
         try:
-            path = write(run_id)
+            report = check_run(run_id)
         except FileNotFoundError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             return 1
-        print(json.dumps({"run_id": run_id, "inspect": str(path),
-                          "note": "单文件 HTML：双击即可打开，图片走相对路径（需与 build/ 同目录）"},
-                         ensure_ascii=False, indent=2))
-        if args.open:
-            import webbrowser
-            webbrowser.open(f"file://{path}")
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print(format_report(report))
+        if report["verdict"] == "unusable":
+            return 1
+        if args.strict and report["soft"]:
+            return 1
         return 0
     if args.command == "fetch":
         from .fetch import fetch_url

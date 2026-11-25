@@ -162,9 +162,8 @@ python3 -m bookleme doctor
 # End to end: book → skill
 python3 -m bookleme run --input evals/cases/synthetic/coach_book.md --title "My First Book"
 
-# See what this run actually produced: single-file HTML inspector (open it offline)
-python3 -m bookleme inspect
-open out/<run_id>/inspect.html
+# Is the generated skill actually usable? What it answers / can it be followed / where it is thin
+python3 -m bookleme check
 
 # Validate artifacts (official validator + own lint + copyright gates)
 python3 -m bookleme validate examples/coach
@@ -238,28 +237,37 @@ it. Verbatim captions and exact positions live in the shared IR `figures.json` i
 
 ---
 
-<a id="inspect"></a>
+<a id="check"></a>
 
-## Inspector · `bookleme inspect`
+## Acceptance · `bookleme check` (what you actually got)
 
-Artifacts used to be scattered across several JSON files and a pile of Markdown. The
-inspector puts the **verdict first** in one offline HTML file:
+Artifacts are spread across a few JSON files and a pile of Markdown. `check` answers the three
+questions a user actually cares about, **verdict on the first line**:
 
 ```bash
-python3 -m bookleme inspect          # most recent run
-python3 -m bookleme inspect <run_id>  # a specific run
-open out/<run_id>/inspect.html
+python3 -m bookleme check              # most recent run
+python3 -m bookleme check <run_id>     # a specific run
+python3 -m bookleme check --json       # machine-readable; --strict also fails on caveats (CI)
 ```
 
-Seven sections: **Overview** (usable? · key numbers · one-click copy of absolute paths) ·
-**Figures** (gallery, anchoring state, click to enlarge) · **Cards** (search/filter, every
-card carries its verbatim anchor) · **Fidelity** (7 metrics, judge summary, collapsed
-unverified-assumptions) · **Gates** (the 6 hard gates with measured value vs ceiling) ·
-**Stages** (S0–S9 status) · **Sources**.
+```
+run ux3-clean · usable as is
+extractor deterministic-markup · 0 LLM calls
 
-Motion is designed around **state changes**, not components: 240 ms in / 150 ms out /
-120 ms hover-press; separate easings for enter, exit and press; only transform and opacity
-animate (no reflow, no jitter); `prefers-reduced-motion` collapses everything to instant.
+[knowledge_pack] Design Your Life · framework reference
+  frameworks: 6 · followable 6/6 · verbatim-traceable citations 6/6
+  answers: gravity problems / one-question-at-a-time rhythm / ...
+  declines: anything outside the book (says "the book doesn't cover this")
+```
+
+Three verdicts only: **usable as is** / **usable with caveats** / **not recommended (fix hard issues)**.
+Hard issues make the skill wrong: a shard without a verbatim-traceable source, an index pointing at
+a missing file, a SKILL.md missing a section or the "the book doesn't cover this" rule.
+Caveats make it weaker: unanchored figures, no smoke cases, index missing shards.
+
+> There is no web UI. The skill's real interface is **how it behaves inside a model**:
+> answer first, then evidence with citations, then boundaries, then "what data is still missing";
+> in dialogue, one question at a time with visible progress, interruptible and resumable.
 
 ---
 

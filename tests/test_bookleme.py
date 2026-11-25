@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "2.1.1")
+        self.assertEqual(__version__, "2.1.0")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -1023,39 +1023,132 @@ class TestZeroConfigAndInspector(unittest.TestCase):
         self.assertIn("next", rep)
         self.assertTrue(rep["plugins"]["available"], "doctor 应报出可用体裁")
 
-    def test_inspector_renders_single_file_with_data(self):
-        from bookleme.inspect import collect, render
-        import bookleme.inspect as insp
-        runs = sorted((d.stat().st_mtime, d.name) for d in (ROOT / "out").iterdir() if d.is_dir())
-        self.assertTrue(runs, "out/ 下应有历史 run 可供检视")
-        run_id = runs[-1][1]
-        data = collect(run_id)
-        self.assertIn("figures", data)
-        self.assertIn("cards", data)
-        html = render(data)
-        self.assertIn("window.__DATA__", html)
-        self.assertNotIn("/*__DATA__*/null/*__DATA__*/", html, "数据占位符必须被替换")
-        self.assertIn("编译检视台", html)
-        # 单文件：除图片走相对路径外，不许有外链依赖
-        self.assertNotIn("<script src=", html)
-        self.assertNotIn("<link rel=\"stylesheet\"", html)
+    def test_check_accepts_complete_skill(self):
+        """可用性验收：完整产物应判「可直接用」，而不是只检查文件存在。"""
+        import tempfile
+        from bookleme.check import _check_artifact
 
-    def test_inspector_escapes_script_breaking_payload(self):
-        from bookleme.inspect import render
-        html = render({"run_id": "x", "title": "</script><script>alert(1)</script>"})
-        self.assertNotIn("</script><script>alert(1)", html)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            refs = root / "references"
+            refs.mkdir()
+            (root / "SKILL.md").write_text(
+                "# T\n\n## 核心定位\nx\n\n## 触发场景\nx\n\n## 工作流\nx\n\n"
+                "## 输出格式\nx\n\n## Gotchas\n- 书里没讲就明说\n", encoding="utf-8")
+            (refs / "framework-01.md").write_text(
+                "## 何时读本文件\n\n## 框架：重力问题\n\n1. 说出困扰\n2. 判断可否改变\n\n"
+                "不适用边界：临床危机不适用。\n\n出处：SRC-001 / seg-002 / char_range [1, 9)\n",
+                encoding="utf-8")
+            (refs / "topic-index.md").write_text(
+                "## 何时读本文件\n\n| 意图 | 文件 |\n| --- | --- |\n"
+                "| 重力问题 | `references/framework-01.md` |\n", encoding="utf-8")
+            (root / "evals").mkdir()
+            (root / "evals" / "smoke.md").write_text(
+                "- [positive] a\n- [negative] b\n- [boundary] c\n", encoding="utf-8")
 
-    def test_inspector_cli_generates_file(self):
-        import subprocess
-        root = Path(__file__).resolve().parents[1]
-        runs = sorted((d.stat().st_mtime, d.name) for d in (ROOT / "out").iterdir() if d.is_dir())
-        run_id = runs[-1][1]
-        out = subprocess.run(["python3", "-m", "bookleme", "inspect", run_id], cwd=str(root),
-                             capture_output=True, text=True, timeout=180)
-        self.assertEqual(out.returncode, 0, out.stderr[-400:])
-        target = ROOT / "out" / run_id / "inspect.html"
-        self.assertTrue(target.is_file())
-        self.assertGreater(target.stat().st_size, 10000)
+            art = {"engine": "behavior_skill", "display_name": "T", "slug": "s",
+                   "skill_dir": str(root)}
+            r = _check_artifact(art, root)
+            self.assertEqual(r["frameworks"], 1)
+            self.assertEqual(r["actionable"], 1)
+            self.assertEqual(r["traceable"], 1)
+            self.assertEqual(r["hard"], [], r["hard"])
+            self.assertEqual(r["soft"], [], r["soft"])
+
+    def test_check_flags_shard_without_traceable_source(self):
+        import tempfile
+        from bookleme.check import _check_artifact
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "references").mkdir()
+            (root / "SKILL.md").write_text(
+                "## 核心定位\n## 触发场景\n## 工作流\n## 输出格式\n## Gotchas\n书里没讲\n",
+                encoding="utf-8")
+            (root / "references" / "framework-01.md").write_text(
+                "## 何时读本文件\n1. 甲\n2. 乙\n不适用边界：无\n", encoding="utf-8")
+            art = {"engine": "knowledge_pack", "display_name": "T", "slug": "s",
+                   "skill_dir": str(root)}
+            r = _check_artifact(art, root)
+            self.assertTrue(any("出处" in m for m in r["hard"]), r["hard"])
+
+
+class TestIntake(unittest.TestCase):
+    """输入整形：目录摊平、书名推断、公开源不被静默混入。"""
+
+    def _book(self, td: Path, heading: str) -> Path:
+        src = (ROOT / "evals/cases/synthetic/coach_book.md").read_text(encoding="utf-8")
+        body = src.split("\n", 1)[1]
+        p = td / "coach_book.md"
+        p.write_text(f"# {heading}\n" + body, encoding="utf-8")
+        return p
+
+    def test_directory_input_and_title_from_heading(self):
+        import tempfile
+        from bookleme.intake import expand_paths, infer_title
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._book(root, "我的测试书")
+            (root / ".hidden").mkdir()
+            (root / ".hidden" / "x.md").write_text("# 隐藏", encoding="utf-8")
+            files, urls = expand_paths([str(root)])
+            self.assertEqual(len(files), 1, "目录应摊平成文件，且跳过隐藏目录")
+            self.assertEqual(urls, [])
+            title, hint = infer_title(files)
+            self.assertEqual(title, "我的测试书", "书名应取首个一级标题，而不是文件名")
+            self.assertIn("一级标题", hint)
+
+    def test_public_sources_are_opt_in(self):
+        """以前 fetch 过一次，之后每次 run 都会把那些内容悄悄混进语料。"""
+        import tempfile
+        from bookleme.pipeline import Pipeline
+        from bookleme.config import CACHE_DIR, load_router_config, load_run_config
+
+        with tempfile.TemporaryDirectory() as td:
+            p = self._book(Path(td), "隔离测试书")
+            pipe = Pipeline(load_run_config(), load_router_config())
+            s = pipe.run([str(p)], run_id="unittest-public-isolation",
+                         engine="knowledge_pack")
+            cache = CACHE_DIR / s["book_sha256"][:12]
+            src = json.loads((cache / "sources.json").read_text(encoding="utf-8"))
+            origins = {x["origin"] for x in src["sources"]}
+            self.assertEqual(origins, {"local"},
+                             f"公开源不该自动并入，实际：{src['sources']}")
+            prov = json.loads((Path(s["out_dir"]) / "provenance_manifest.json")
+                              .read_text(encoding="utf-8"))
+            self.assertEqual(prov["book"]["title"], "隔离测试书")
+
+    def test_coverage_file_lists_only_this_books_toc(self):
+        from bookleme.render.skill import render_skill
+        from bookleme.plugins import load_plugins
+        from bookleme.check import _read
+
+        registry, _ = load_plugins()
+        plugin = registry["knowledge_reference"]
+        cap = {"capability_id": "CAP-0001", "title": "T", "source_id": "SRC-001",
+               "span": {"segment_id": "seg-001", "char_start": 1, "char_end": 5},
+               "ria": {"R_quote": "Q", "I_rephrase": "R", "A1_author_case": "A",
+                       "A2_user_trigger": "U", "A3_steps": ["1"], "B_not_applicable": "N"},
+               "confidence": {"tier": "S", "score": 0.9}, "status": "verified"}
+        files = render_skill(plugin, {
+            "slug": "s", "display_name": "D", "description": "d", "book_title": "B",
+            "author": "", "engine": "knowledge_pack", "run_id": "r",
+            "config": {"engine_order": ["knowledge_pack"], "max_quote_chars": 150},
+            "verified_capabilities": [cap], "segments": {"segments": []},
+            "provenance_manifest": {"book": {"title": "B", "author": "", "isbn": "",
+                                            "user_rights": "unknown"},
+                                    "distribution": {"decision": "private", "reason": "r"},
+                                    "attribution": {"statement": "", "notice": ""},
+                                    "engine": {"bookleme_version": "x", "plugin_id": "k"}},
+            "fidelity_report": {}, "router_result": {}, "figures": [],
+            "toc": [{"heading": "第一章 只属于这本书", "level": 1},
+                    {"heading": "第二章 也不属于别的书", "level": 1}],
+        })
+        self.assertIn("references/coverage.md", files)
+        self.assertIn("第一章 只属于这本书", files["references/coverage.md"])
+        self.assertIn("coverage.md", files["references/topic-index.md"])
+        self.assertIn("方法主线", files["SKILL.md"], "SKILL.md 应给出这本书的方法主线")
 
 
 class TestReviewFixes(unittest.TestCase):
@@ -1322,10 +1415,10 @@ class TestPatch211Fixes(unittest.TestCase):
         self.assertEqual(out.returncode, 1)
         self.assertIn("user-rights", out.stderr, "公开分发缺权利声明必须在开跑前就拦下")
 
-    def test_inspect_missing_run_is_friendly(self):
+    def test_check_missing_run_is_friendly(self):
         import subprocess
         root = Path(__file__).resolve().parents[1]
-        out = subprocess.run(["python3", "-m", "bookleme", "inspect", "no-such-run"],
+        out = subprocess.run(["python3", "-m", "bookleme", "check", "no-such-run"],
                              cwd=str(root), capture_output=True, text=True, timeout=120)
         self.assertEqual(out.returncode, 1)
         self.assertNotIn("Traceback", out.stderr, "不存在的 run 不该抛裸栈")
@@ -1343,17 +1436,6 @@ class TestPatch211Fixes(unittest.TestCase):
             _os.replace(tmp, p)
             self.assertEqual(p.read_text(encoding="utf-8"), "新")
             self.assertEqual(list(Path(td).glob("*.tmp")), [])
-
-    def test_inspector_flags_missing_image_assets(self):
-        from bookleme.inspect import collect
-        runs = sorted((d for d in (ROOT / "out").iterdir() if d.is_dir()),
-                      key=lambda p: p.stat().st_mtime)
-        data = collect(runs[-1].name)
-        missing = [f for f in data["figures"] if f.get("image_missing")]
-        for f in missing:
-            self.assertFalse(any(f["images"].values()),
-                             "标记为缺失的图不应同时带着路径（否则又变回坏图）")
-
 
     def test_conversation_skill_supports_pause_resume_and_progress(self):
         """对话型体裁的三条交互纪律：可见进度 / 可打断可收回 / 不打断。"""

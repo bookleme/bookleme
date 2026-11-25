@@ -24,6 +24,7 @@ from .config import (
     OUT_DIR, PROGRESS_PATH, ROOT, ROUTER_CONFIG, SCHEMA_DIR, STATE_PATH, dump_json, load_json,
 )
 from .hashing import sha256_file, sha256_text, stage_input_hash
+from .intake import expand_paths, infer_title, short_title
 from .state import StateStore
 from .extract import SUPPORTED_EXTENSIONS, extract_source, merge
 from .extract.figures import extract_pdf_figures, html_figure_entries, locate_captions
@@ -37,7 +38,7 @@ from .plugins import load_plugins, resolve_plugin
 from .validate import lint_skill_dir, run_copyright_gate, validate_skill
 from .eval import run_smoke
 from .provenance import build_manifest, figure_distribution_block
-from .install import install_skill
+from .install import install_skill, preflight
 from .schema_check import validate as schema_validate
 
 SCHEMA_FOR = {
@@ -134,11 +135,19 @@ class Pipeline:
             install: bool = False, title: str | None = None, author: str = "",
             isbn: str = "", language: str = "zh", user_rights: str | None = None,
             public: bool = False, confirm_public: str | None = None,
-            extra_plugin_dir: str | None = None, dry_run: bool = False) -> dict:
+            extra_plugin_dir: str | None = None, dry_run: bool = False,
+            include_public: bool = False) -> dict:
 
         run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
         llm.reset_counters()  # per-run LLM 调用计数
         t_start = time.monotonic()
+        # 用户手上可能是目录、网址，或一堆零散文件；先摊平再谈流水线，
+        # 别把「整理输入」这件事留给用户（他给什么我们收什么）。
+        local_inputs, urls = expand_paths(input_paths)
+        if not local_inputs and not urls:
+            raise PipelineError(
+                "没有可用输入：目录里没有支持的文档"
+                "（.md/.txt/.pdf/.docx/.epub/.html/.rtf/.mobi），也没给网址。")
         log_path = LOG_DIR / self.milestone / f"run-{run_id}.log"
         log = Logger(log_path)
         out_dir = OUT_DIR / run_id
@@ -146,10 +155,10 @@ class Pipeline:
 
         # 横幅只给「此刻有用」的信息：总量与日志路径。
         # 不再打「预计 30-45 分钟」——实测大部分批次几秒就跑完，那个估计是误导。
-        log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(input_paths)} 个")
+        log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(local_inputs) + len(urls)} 个")
         log(f"[BATCH] 实时日志：{log_path}（进度 {PROGRESS_PATH} / {STATE_PATH}）")
         progress_body = (f"# BookLeme 进度（最新批次 {run_id}）\n\n"
-                         f"- 计划总量：S0-S9 共 9 个 stage；输入源 {len(input_paths)} 个\n"
+                         f"- 计划总量：S0-S9 共 9 个 stage；输入源 {len(local_inputs) + len(urls)} 个\n"
                          f"- 日志绝对路径：{log_path}\n"
                          f"- LLM 配置指纹：{llm.config_fingerprint()}"
                          f"（{llm.settings().get('source') or '未配置'}）\n\n"
@@ -159,13 +168,35 @@ class Pipeline:
         self._write_text(LOG_DIR / self.milestone / f"progress-{run_id}.md", progress_body)
 
         rights = user_rights or self.config["user_rights"]
-        book_title = title or Path(input_paths[0]).stem
         model_fingerprint = f"deterministic-{__version__} (no LLM judge in this batch)"
 
         # ---------------- S0 Intake ----------------
         log("S0 Intake")
+        fetched: list[dict] = []
+        if urls:
+            # 网址 = 公开来源（tier B）。抓下来落进 sources/public，S0 后面按公开源吃进去，
+            # 不需要用户先跑一次 fetch 再记路径。
+            from .fetch import fetch_url
+            for u in urls:
+                try:
+                    rec = fetch_url(u)
+                except Exception as exc:
+                    # 抓取失败最常见的是代理/证书问题；给出能自己走的下一步，
+                    # 而不是把 SSL 栈丢给用户
+                    raise PipelineError(
+                        f"抓取 {u} 失败：{type(exc).__name__}: {str(exc)[:160]}。"
+                        f"可以先手动下载，再用 --input 指向本地文件。") from exc
+                fetched.append(rec)
+                log(f"    抓取 {u} → sources/public（公开来源，tier B）")
+        # 书名不该默认成文件名：先看文档自带的标题，再退回清洗过的文件名，
+        # 并在日志里说清取自哪里（用户才知道要不要用 --title 覆盖）。
+        if title:
+            book_title = title
+        else:
+            book_title, title_hint = infer_title(local_inputs, fetched)
+            log(f"    书名「{book_title}」（{title_hint}）")
         sources: list[dict] = []
-        for i, raw in enumerate(input_paths, 1):
+        for i, raw in enumerate(local_inputs, 1):
             p = Path(raw).expanduser().resolve()
             if not p.is_file():
                 raise PipelineError(f"输入文件不存在：{p}")
@@ -184,9 +215,17 @@ class Pipeline:
         public_dir = ROOT / "sources/public"
         public_data: dict[str, dict] = {}
         input_shas = {s["sha256"] for s in sources}
+        # 公开源默认**不再无脑并入**：以前只要 fetch 过一次，之后每次 run 都会把那些
+        # 内容悄悄混进语料（表现为书名是你的，覆盖章节和图却是别人的）。
+        # 现在只纳入两种：本次通过 URL 抓取的，或用户显式 --include-public。
+        wanted_urls = {r.get("url") for r in fetched if r.get("url")}
+        skipped_public = 0
         if public_dir.exists():
             for f in sorted(public_dir.glob("*.json")):
                 data = load_json(f)
+                if not include_public and data.get("url") not in wanted_urls:
+                    skipped_public += 1
+                    continue
                 if data.get("file"):
                     # 文件型公开源先算 sha：与 --input 传入的同一文件去重，防重复计源
                     pfile = public_dir / data["file"]
@@ -217,6 +256,9 @@ class Pipeline:
                         "retrieved_at": data.get("retrieved_at", ""),
                         "extract_status": "pending", "figure_text_lost": False,
                     })
+        if skipped_public:
+            log(f"    sources/public 里还有 {skipped_public} 个公开源未纳入"
+                f"（要一起编译请加 --include-public）")
         if not sources:
             raise PipelineError("没有可用输入源")
 
@@ -532,7 +574,7 @@ class Pipeline:
                     raise PipelineError(f"S6 找不到引擎 {eng} 的插件：{reason}")
                 short = "kp" if eng == "knowledge_pack" else "bs"
                 slug = f"book-{book_sha256[:8]}-{short}"
-                display = f"{book_title[:12]}·{plugin.display_name_zh}"
+                display = f"{short_title(book_title)}·{plugin.display_name_zh}"
                 description = build_description(plugin, book_title, self.config)
                 ctx = {
                     "slug": slug, "display_name": display, "description": description,
@@ -541,7 +583,7 @@ class Pipeline:
                     "verified_capabilities": verified_caps,
                     "segments": segments, "provenance_manifest": manifest,
                     "fidelity_report": fidelity, "router_result": router_result,
-                    "figures": figures,
+                    "figures": figures, "toc": toc,
                 }
                 files = plugin.render(ctx)
                 target = out_dir / "build" / eng / f"{display}（{slug}）"
@@ -645,8 +687,16 @@ class Pipeline:
         }, log)
 
         # ---------------- S8 Install (optional) ----------------
+        install_receipts: list[dict] = []
         if install and not dry_run:
             log("S8 Install（写入技能真源）")
+            preflight([
+                {"category": (self.config["category_knowledge"] if art["engine"] == "knowledge_pack"
+                              else self.config["category_behavior"]),
+                 "display_name": art["display_name"], "slug": art["slug"],
+                 "skill_dir": art["skill_dir"]}
+                for art in artifacts
+            ])
             receipts = []
             for art in artifacts:
                 category = (self.config["category_knowledge"] if art["engine"] == "knowledge_pack"
@@ -657,6 +707,7 @@ class Pipeline:
                     frontmatter_name=art["slug"], distribution="private",
                 )
                 receipts.append(receipt)
+            install_receipts = receipts
             self._write(out_dir / "install_receipt.json",
                         {"schema_version": "1.0", "receipts": receipts}, log)
             self.state.mark(run_id, "S8", stage_input_hash([s7_paths[0]]),
@@ -729,8 +780,19 @@ class Pipeline:
             "metrics_path": str(out_dir / "metrics.json"),
             "validation_path": s7_paths[0].__str__(),
             "llm_calls": llm.llm_calls,
+            "installed": [r.get("target_abs", "") for r in install_receipts],
+            "next": [
+                f"看这次能不能用：python3 -m bookleme check {run_id}",
+                f"看指标：python3 -m bookleme eval --run-id {run_id}",
+                ("已装到技能目录，直接按 SKILL.md 的「触发场景」提问即可。"
+                 if install_receipts else
+                 "想装到技能目录：同一条命令加 --install（有缓存，重跑很快）"),
+            ],
         }
         log(f"[BATCH] 完成：{len(artifacts)} 个产物，all_passed={validation['all_passed']}；"
             f"耗时 {time.monotonic() - t_start:.1f}s；"
             f"日志 {log_path}")
+        log(f"[BATCH] 下一步：{summary['next'][0]}")
+        if not install_receipts:
+            log(f"[BATCH] {summary['next'][2]}")
         return summary
