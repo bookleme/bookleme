@@ -1605,7 +1605,9 @@ class TestHtmlContentQuality(unittest.TestCase):
 
         背景：兜底曾固定输出 knowledge_pack + behavior_skill，于是 margin 偏小
         的技术文档会硬套「自我对话教练」（触发词是人生设计/自我对话，与技术
-        内容完全无关）。现在兜底按 top1 体裁自己的引擎表出产物。
+        内容完全无关）。现在兜底按**文体属性**决定：
+        - 行为类体裁（coach_dialogue）仍双出（这类内容本就要两件产物）
+        - 知识类体裁（knowledge_reference）只出 knowledge_pack，不硬套行为技能
         """
         from bookleme.router.rules import route
         cfg = load_router_config()
@@ -1621,9 +1623,30 @@ class TestHtmlContentQuality(unittest.TestCase):
         if result["top1"] == "knowledge_reference":
             self.assertEqual(result["engines"], ["knowledge_pack"],
                              f"歧义兜底不应硬套教练技能：{result['engines']}")
-        # 任何情况下都不该在 top1=knowledge_reference 时产出 behavior_skill
-        if result["top1"] == "knowledge_reference":
             self.assertNotIn("behavior_skill", result["engines"])
+
+    def test_ambiguity_keeps_dual_output_for_behavior_genres(self):
+        """行为类体裁歧义时仍双出——不能为了修技术文档把教练书产物也砍了。
+
+        背景：合成评测书（人生设计练习册）走 ambiguity 分支，历史上期望
+        双引擎产物（教练技能 + 框架速查）。曾按「引擎表长度」判断单/双引擎，
+        而 coach_dialogue 的 default_engines 只有一项 → 被误判成单引擎 →
+        只出 1 个产物，测试失败。判据应是**文体属性**，不是引擎表长度。
+        """
+        from bookleme.router.rules import route
+        cfg = load_router_config()
+        # 用真实的合成评测书：它确实走 ambiguity 分支
+        from bookleme.config import ROOT
+        synth = ROOT / "evals" / "cases" / "synthetic" / "coach_book.md"
+        text = synth.read_text(encoding="utf-8")
+        from bookleme.segment.headings import segment_text
+        segs = segment_text(text, [], load_run_config())["segments"]
+        result, _ = route(text, segs, [], cfg)
+        self.assertEqual(result["override_source"], "ambiguity",
+                         f"合成评测书应走歧义兜底分支，实际 {result['override_source']}")
+        self.assertEqual(result["top1"], "coach_dialogue")
+        self.assertEqual(result["engines"], ["knowledge_pack", "behavior_skill"],
+                         f"行为类体裁歧义时应双出：{result['engines']}")
 
 
 class TestHostAgentCapabilityChannel(unittest.TestCase):
