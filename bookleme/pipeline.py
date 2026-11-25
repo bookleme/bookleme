@@ -156,11 +156,35 @@ class Pipeline:
             isbn: str = "", language: str = "zh", user_rights: str | None = None,
             public: bool = False, confirm_public: str | None = None,
             extra_plugin_dir: str | None = None, dry_run: bool = False,
-            include_public: bool = False) -> dict:
+            include_public: bool = False,
+            project_context: str | None = None,
+            real_tasks: str | None = None) -> dict:
 
         run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
         llm.reset_counters()  # per-run LLM 调用计数
         t_start = time.monotonic()
+        # 本项目上下文（P1-2）：区分「原文说的」与「本项目验证的」。
+        # Codex 评审指出：Rocket 在 checkpoint 后调整 learner 是**微软系统**的
+        # 实现选择，我们的作业用混合引擎 —— 直接照搬会把别人的实现当通用结论。
+        project_ctx: dict = {}
+        if project_context:
+            pc_path = Path(project_context)
+            if not pc_path.is_file():
+                raise PipelineError(f"--project-context 指向的文件不存在：{pc_path}")
+            try:
+                project_ctx = load_json(pc_path)
+            except ValueError as exc:
+                raise PipelineError(f"--project-context 不是合法 JSON：{exc}") from exc
+            if not isinstance(project_ctx, dict):
+                raise PipelineError("--project-context 顶层必须是 JSON 对象")
+        # 真实任务评测集（P1-3）
+        real_suite: dict = {}
+        if real_tasks:
+            from .eval.real_task import build_real_task_suite, load_real_tasks
+            try:
+                real_suite = build_real_task_suite(load_real_tasks(Path(real_tasks)))
+            except ValueError as exc:
+                raise PipelineError(f"--real-tasks 格式不对：{exc}") from exc
         # 用户手上可能是目录、网址，或一堆零散文件；先摊平再谈流水线，
         # 别把「整理输入」这件事留给用户（他给什么我们收什么）。
         local_inputs, urls = expand_paths(input_paths)
@@ -313,6 +337,21 @@ class Pipeline:
             self._write(s0_paths[0], sources_obj, log)
             self._write(s0_paths[1], manifest, log)
             self.state.mark(run_id, "S0", s0_hash, s0_paths)
+
+        # 源材料快照（P2）：留住「编译时看到的原文」，这样 `bookleme freshness`
+        # 才能拿当前源跟它比、算出真实差异。少了快照就只能拿归一化后的编译语料
+        # 去比 —— 那是格式不同的产物，diff 全是噪音（实测 +0/-57 行全是格式差异）。
+        snap_dir = cache / "sources_snapshot"
+        for src in sources:
+            sp = src.get("path")
+            if not sp or not Path(sp).is_file():
+                continue
+            try:
+                snap = snap_dir / f"{src['source_id']}.txt"
+                snap.parent.mkdir(parents=True, exist_ok=True)
+                snap.write_bytes(Path(sp).read_bytes())
+            except OSError as exc:
+                log(f"    源快照写入失败（{src.get('source_id')}）：{exc}")
 
         # ---------------- S1 Extract ----------------
         log("S1 Extract（确定性 ETL + 图表提取）")
@@ -642,6 +681,13 @@ class Pipeline:
                     "segments": segments, "provenance_manifest": manifest,
                     "fidelity_report": fidelity, "router_result": router_result,
                     "figures": figures, "toc": toc,
+                    # 出处复核（P1-1）：渲染层要拿 source 的 url / sha256 /
+                    # retrieved_at 才能给出「怎么独立复核」。
+                    "sources": sources,
+                    # 原文案例 vs 本项目验证（P1-2）
+                    "project_context": project_ctx,
+                    # 真实任务评测（P1-3）
+                    "real_task_suite": real_suite,
                 }
                 files = plugin.render(ctx)
                 target = out_dir / "build" / eng / f"{display}（{slug}）"

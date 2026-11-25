@@ -175,6 +175,13 @@ def _skill_md(plugin, ctx: dict) -> str:
         notes.append(f"交付约定：以 Markdown 文件落盘（模板名 `{contract['file_name']}`，"
                      f"建议命名 `<产物名>_<YYYY-MM-DD>.md`），交付时给出完整文件绝对路径。")
     notes_block = ("\n" + "\n".join(notes) + "\n") if notes else ""
+    # P1-2：原文案例 vs 本项目验证。放在 SKILL.md 顶部（全局上下文），
+    # 而不是逐卡重复 —— 读者在用任何一条规则前就该知道这个区分。
+    project_block = ""
+    if ctx.get("project_context"):
+        from ..evidence.locator import render_project_evidence_block
+        project_block = ("\n---\n\n## 原文案例 vs 本项目验证\n"
+                         + render_project_evidence_block(ctx["project_context"]))
     return f"""---
 name: {ctx['slug']}
 description: {ctx['description']}
@@ -184,7 +191,7 @@ description: {ctx['description']}
 
 ## 核心定位
 
-{intro}{arc}
+{intro}{arc}{project_block}
 
 ---
 
@@ -213,16 +220,26 @@ description: {ctx['description']}
 """
 
 
-def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) -> str:
+def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None,
+                  ctx: dict | None = None) -> str:
     ria = cap["ria"]
     steps = "\n".join(f"{i}. {s}" for i, s in enumerate(ria["A3_steps"], 1))
+    # 证据绑定（P0）：把规则拆成「来源事实 / 适用条件 / 生成的推论」并各自判状态；
+    # 强结论（P0-2）在原文未明确支持时降级为「案例主要讨论此场景」。
+    # 这一步是**读产物的人**判断「这条能不能直接用」的前提。
+    from ..evidence import annotate_capability, render_evidence_block
+    ev_detail = annotate_capability(ria)
+    # 降级后的边界替换进正文：读者看到的就是降级后的表述
+    ria_out = dict(ria)
+    if ev_detail.get("downgraded"):
+        ria_out["B_not_applicable"] = ev_detail["condition"]["text"]
     # 体裁额外必填字段（plugin.capability_schema.genre_fields）参与模板替换：
     # 标准 RIA 字段优先，体裁字段只补空位，避免同名覆盖。
     subst = {
-        "trigger": str(ria["A2_user_trigger"]).rstrip("。；;．. "),
-        "title": cap["title"], "quote": ria["R_quote"],
-        "rephrase": ria["I_rephrase"], "author_case": ria["A1_author_case"],
-        "steps": steps, "not_applicable": ria["B_not_applicable"],
+        "trigger": str(ria_out["A2_user_trigger"]).rstrip("。；;．. "),
+        "title": cap["title"], "quote": ria_out["R_quote"],
+        "rephrase": ria_out["I_rephrase"], "author_case": ria_out["A1_author_case"],
+        "steps": steps, "not_applicable": ria_out["B_not_applicable"],
     }
     genre_fields = cap.get("genre_fields") or {}
     for key, val in genre_fields.items():
@@ -251,13 +268,30 @@ def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) ->
             lines.append(f"- {fid}（{rel}，{page}可逐字追溯）")
         lines.append("  图注原文不复制入产物（版权纪律）；见共享 IR figures.json / figures-index.md。")
         fig_block = "\n".join(lines) + "\n"
+    locator_block = ""
+    if ctx:
+        locator_block = _source_locator_block(cap, ctx, span)
+
     return (
         f"{body}\n"
         f"{gf_block}"
         f"{fig_block}"
+        f"{render_evidence_block(ev_detail)}"
         f"出处：{cap['source_id']} / {span['segment_id']} / char_range "
         f"[{span['char_start']}, {span['char_end']}) / 可信度 {cap['confidence']['tier']}\n"
+        f"{locator_block}"
     )
+
+
+def _source_locator_block(cap: dict, ctx: dict, span: dict) -> str:
+    """出处复核信息块（P1-1）：URL + 内容哈希 + 抓取时间 + 偏移基准。"""
+    from ..evidence.locator import build_source_locator, render_locator_block
+    sources = ctx.get("sources") or []
+    src = next((s for s in sources if s.get("source_id") == cap.get("source_id")), None)
+    if not src:
+        return ""
+    locator = build_source_locator(src, segment_heading=span.get("segment_id", ""))
+    return render_locator_block(locator, span)
 
 
 def render_skill(plugin, ctx: dict) -> dict[str, str]:
@@ -290,7 +324,7 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
     files["references/topic-index.md"] = "\n".join(rows) + "\n"
 
     for i, cap in enumerate(caps, 1):
-        files[f"references/framework-{i:02d}.md"] = _framework_md(plugin, cap, i, figs)
+        files[f"references/framework-{i:02d}.md"] = _framework_md(plugin, cap, i, figs, ctx)
 
     if figs:
         flines = ["## 何时读本文件", "",
@@ -372,6 +406,12 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
         )
         + "\n"
     )
+
+    # 真实任务评测（P1-3）：资料 + 项目上下文 + 任务。冒烟用例考路由，
+    # 真实任务考「能不能落地 / 会不会把模拟当线上 / 能不能说清无法下结论」。
+    from ..eval.real_task import build_real_task_suite, render_suite_md
+    real_suite = ctx.get("real_task_suite") or build_real_task_suite()
+    files["evals/real-task.md"] = render_suite_md(real_suite)
 
     if ctx["engine"] == "behavior_skill":
         contract = plugin.output_contract

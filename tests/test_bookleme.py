@@ -1889,5 +1889,225 @@ class TestHostAgentJudgeChannel(unittest.TestCase):
                       "doctor 的提示应把宿主承接列为首选路径")
 
 
+class TestEvidenceBindingAndFreshness(unittest.TestCase):
+    """Codex 评审六条改进的回归锁。
+
+    背景：Codex 用 BookLeme 编译的 microsoft.ai RL infrastructure 技能对照
+    505B 作业后提出六条改进。核心是第一条：
+    > 把每条规则拆成「来源事实、适用条件、生成的推论」，分别绑定证据。
+    > 引用能找到，但不足以支持整条结论时，标记为「待核验」。
+    """
+
+    # ---------- P0-1 结论与证据分链绑定 ----------
+
+    def test_rule_split_into_fact_condition_inference(self):
+        """每条规则拆成三部分并各自判状态。"""
+        from bookleme.evidence import split_rule_parts
+        parts = split_rule_parts(
+            "按「存储精度」与「计算精度」分离设计：低精度只用于存储。",
+            "不适用于非 MoE 模型。",
+            "某案例的原始说明。",
+            "we selectively use MXFP8 for MoE weights")
+        self.assertIn("fact", parts)
+        self.assertIn("condition", parts)
+        self.assertIn("inference", parts)
+        self.assertEqual(parts["fact"]["status"], "supported",
+                         "有逐字引文 → 来源事实 supported")
+        self.assertEqual(parts["condition"]["status"], "downgraded",
+                         "「不适用」是强结论且原文未支持 → 降级")
+
+    def test_missing_quote_marks_unverified(self):
+        """无引文支撑 → 标「待核验」，不得当成 supported。"""
+        from bookleme.evidence import split_rule_parts
+        parts = split_rule_parts("某条规则。", "边界。", "案例。", "")
+        self.assertEqual(parts["fact"]["status"], "unverified")
+        self.assertEqual(parts["overall"], "unverified")
+
+    def test_longer_rule_than_quote_is_inference(self):
+        """规则明显长于引文 → 含我们扩写的内容 → 判为推论。
+
+        关键判据：引文只能覆盖它自己的长度。实测被判 supported 的卡都是
+        「引文 55 字 / 规则 77 字」这种情况 —— 多出来的「存储/计算分离」
+        原文根本没写。
+        """
+        from bookleme.evidence import split_rule_parts
+        parts = split_rule_parts(
+            "按「存储精度」与「计算精度」分离设计：低精度只用于存储以省显存提速，"
+            "计算前反量化回高精度执行，并在学习器侧复现同样的量化流程。",
+            "边界。", "案例。",
+            "we selectively use MXFP8 for MoE weights")
+        self.assertTrue(parts["inference"]["is_inference"],
+                        "规则比引文长出一截 → 应判为推论")
+        self.assertEqual(parts["inference"]["status"], "partial")
+
+    # ---------- P0-2 强结论降级 ----------
+
+    def test_strong_claims_detected(self):
+        """强结论词要被识别出来。"""
+        from bookleme.evidence import find_strong_claims, has_strong_claim
+        self.assertTrue(has_strong_claim("必须先做 X"))
+        self.assertTrue(has_strong_claim("该方法不适用于其他场景"))
+        self.assertTrue(has_strong_claim("收益不成立"))
+        self.assertFalse(has_strong_claim("可以先做 X 再调整"))
+        hits = find_strong_claims("不适用")
+        self.assertIn("不适用", hits)
+
+    def test_absolute_boundary_gets_downgraded(self):
+        """原文未明确支持的绝对边界 → 降级为「案例主要讨论…，其他场景需另行验证」。"""
+        from bookleme.evidence import downgrade_boundary
+        out, changed = downgrade_boundary(
+            "不适用于没有数值一致性问题的短程蒸馏精修；也不适用于非 MoE 模型。")
+        self.assertTrue(changed)
+        self.assertIn("不直接适用", out)
+        self.assertIn("其他场景需要另行验证", out)
+        self.assertNotIn("也不适用于非 MoE", out)
+
+    def test_no_downgrade_when_already_qualified(self):
+        """已有「另行验证」限定 → 不重复降级（别越改越啰嗦）。"""
+        from bookleme.evidence import downgrade_boundary
+        src = "该案例主要讨论此场景，其他场景需要另行验证。"
+        out, changed = downgrade_boundary(src)
+        self.assertFalse(changed)
+        self.assertEqual(out, src)
+
+    def test_strong_claim_supported_by_source_kept(self):
+        """原文真的写了强结论 → 不降级（别把好规则改弱）。"""
+        from bookleme.evidence import annotate_capability
+        ria = {
+            "R_quote": "The sampler must receive up-to-date weights",
+            "I_rephrase": "采样器必须每 4 步接收一次最新权重。",
+            "A1_author_case": "案例。", "A2_user_trigger": "当用户说「x」时",
+            "A3_steps": ["a", "b"], "B_not_applicable": "不适用于单步训练。",
+        }
+        d = annotate_capability(ria)
+        # 规则与引文都含「必须」→ 属复述而非我们加的 → 不判推论
+        self.assertFalse(d["inference"]["is_inference"])
+
+    # ---------- P1-1 出处可独立复核 ----------
+
+    def test_locator_block_has_reproducible_baseline(self):
+        """出处复核块必须说明：相对哪个文件、什么编码、什么范围规则。"""
+        from bookleme.evidence.locator import (build_source_locator,
+                                               render_locator_block)
+        src = {"source_id": "SRC-001", "url": "https://example.com/a",
+               "sha256": "abc123", "retrieved_at": "2026-11-25T00:00:00+00:00",
+               "bytes": 100, "tier": "B"}
+        loc = build_source_locator(src, segment_heading="Controlling staleness")
+        md = render_locator_block(loc, {"segment_id": "seg-004",
+                                        "char_start": 100, "char_end": 200})
+        self.assertIn("https://example.com/a", md)
+        self.assertIn("abc123", md)
+        self.assertIn("UTF-8", md)
+        self.assertIn("左闭右开", md)
+        self.assertIn("不做整篇 NFKC", md)
+        self.assertIn("seg-004", md)
+
+    # ---------- P1-2 区分原文与本地验证 ----------
+
+    def test_project_evidence_block_has_four_sections(self):
+        """工程场景四段式：原文说的 / 项目证据 / 验证结果 / 尚待验证。"""
+        from bookleme.evidence.locator import render_project_evidence_block
+        md = render_project_evidence_block({
+            "code_version": "abc123", "job_ids": "job-1", "test_scope": "单元测试",
+            "source_says": ["原文说 Rocket 在 checkpoint 后调整 learner"],
+            "project_evidence": ["我们的 learner 由 OmniRL 调度"],
+            "verified": ["本地放置函数实测通过"],
+            "pending": ["缺同权重逐 token 数据；一旦概率差异随精度变化则判断作废"],
+        })
+        for section in ("Wiki 的说法", "当前项目证据", "验证结果", "尚待验证"):
+            self.assertIn(section, md)
+        self.assertIn("abc123", md)
+        self.assertIn("job-1", md)
+
+    def test_project_block_absent_without_context(self):
+        """没给项目上下文 → 不渲染该块（别塞空壳）。"""
+        from bookleme.evidence.locator import render_project_evidence_block
+        self.assertEqual(render_project_evidence_block(None), "")
+
+    # ---------- P1-3 真实任务评测 ----------
+
+    def test_real_task_criteria(self):
+        """三条判据：可执行验证 / 区分模拟与线上 / 说清无法下结论。"""
+        from bookleme.eval.real_task import evaluate_real_task
+        good = evaluate_real_task(
+            "原文的做法是在 checkpoint 后调整 learner 规模（该文如此）。"
+            "我们的实现见 learner/scheduler.py 第 42 行的 resize 逻辑，"
+            "配置项是 learner.resize_policy，作业 job-1 的日志显示已生效。"
+            "但我们缺同权重逐 token 数据，无法确定概率差异由精度造成；"
+            "若复算显示差异随精度单调变化，则当前判断作废。",
+            {"id": "t1", "prompt": "怎么落地"})
+        self.assertTrue(good["passed"], good["verdict"])
+
+    def test_real_task_rejects_vague_answer(self):
+        """含糊回答（只复述规则、只说「建议验证」）→ 判不通过。"""
+        from bookleme.eval.real_task import evaluate_real_task
+        vague = evaluate_real_task(
+            "总的来说，这个框架建议进一步验证。",
+            {"id": "t2", "prompt": "怎么落地"})
+        self.assertFalse(vague["passed"])
+        crit = {c["id"]: c for c in vague["criteria"]}
+        self.assertFalse(crit["executable_verification"]["passed"])
+        self.assertFalse(crit["states_why_undecidable"]["passed"],
+                         "只写「建议进一步验证」不算说清缺什么")
+
+    def test_real_task_flags_conflation(self):
+        """把原文做法说成「本项目就是这样」→ 判不通过。"""
+        from bookleme.eval.real_task import evaluate_real_task
+        conflated = evaluate_real_task(
+            "本项目就是这样：先在 learner/scheduler.py 改配置，再跑作业 job-1，"
+            "日志显示生效。因为缺少同权重逐 token 数据，无法下结论；"
+            "若概率差异随精度变化则判断作废。",
+            {"id": "t3", "prompt": "怎么落地"})
+        crit = {c["id"]: c for c in conflated["criteria"]}
+        self.assertFalse(crit["sim_vs_production"]["passed"],
+                         "说成「本项目就是这样」且未标来源 → 应判不通过")
+
+    # ---------- P2 源材料版本追踪 ----------
+
+    def test_freshness_detects_change(self):
+        """源内容变了 → 判 changed；没变 → fresh。"""
+        import tempfile
+        from bookleme.evidence.freshness import (build_freshness_report,
+                                                 content_digest)
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "src.txt"
+            p.write_text("原始内容\n", encoding="utf-8")
+            src = {"source_id": "SRC-001", "path": str(p),
+                   "sha256": content_digest(p.read_bytes()),
+                   "retrieved_at": "2026-11-25T00:00:00+00:00", "bytes": 5}
+            base = {"SRC-001": {"sha256": src["sha256"],
+                                "retrieved_at": src["retrieved_at"],
+                                "bytes": 5}}
+            rep = build_freshness_report([src], {"SRC-001": p}, baseline=base)
+            self.assertEqual(rep["checks"][0]["status"], "fresh")
+            p.write_text("改过的内容\n", encoding="utf-8")
+            rep2 = build_freshness_report([src], {"SRC-001": p}, baseline=base)
+            self.assertEqual(rep2["checks"][0]["status"], "changed")
+
+    def test_affected_sections_uses_char_range(self):
+        """受影响章节按 char_range 定位，不用标题字符串搜。
+
+        背景：原文标题带 Markdown 标记（`## Controlling staleness`），
+        segments 里是纯标题，用 find 会误判到别的章节（实测把 staleness
+        的改动判成 Numerical parity）。
+        """
+        from bookleme.evidence.freshness import affected_sections
+        old = "line1\nline2\nline3\nline4\n"
+        new = "line1\nline2\nCHANGED\nline4\n"
+        segments = [{"segment_id": "seg-001", "heading": "第一章",
+                     "char_range": [0, 12]},
+                    {"segment_id": "seg-002", "heading": "第二章",
+                     "char_range": [12, 24]}]
+        affected = affected_sections(old, new, segments)
+        self.assertEqual(affected, ["seg-002 第二章"])
+
+    def test_diff_text_shows_changed_lines(self):
+        """差异要能看到改了哪几行。"""
+        from bookleme.evidence.freshness import diff_text
+        d = diff_text("a\nb\nc\n", "a\nB\nc\n")
+        self.assertTrue(any(x.startswith("-b") for x in d))
+        self.assertTrue(any(x.startswith("+B") for x in d))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
