@@ -28,8 +28,9 @@ from .extract import SUPPORTED_EXTENSIONS, extract_source, merge
 from .extract.figures import extract_pdf_figures, html_figure_entries, locate_captions
 from .segment import segment_text
 from .router import route
-from .capabilities import attach_figure_refs, extract_capabilities
-from .fidelity import build_claim_ledger, build_fidelity_report, verify_quotes
+from .capabilities import attach_figure_refs, extract_capabilities, extract_figure_cards
+from .fidelity import (build_claim_ledger, build_fidelity_report, judge_capabilities,
+                      v1_cross_domain, verify_quotes)
 from .render import build_description, render_skill
 from .plugins import load_plugins, resolve_plugin
 from .validate import lint_skill_dir, run_copyright_gate, validate_skill
@@ -206,8 +207,10 @@ class Pipeline:
         # sources.json 是跨 run 共享 IR（内容须稳定）；provenance_manifest.json
         # 含 run_id / generated_at，必须按 run 隔离，否则不同 run 会串味。
         s0_paths = [cache / "sources.json", out_dir / "provenance_manifest.json"]
+        # 哈希必须含内容指纹：只含路径的话，重新抓取同一 URL（内容变了、路径没变）
+        # 不会让 S0 失效，旧 sources.json / figures.json 会被误当成新结果复用。
         s0_hash = stage_input_hash([DEFAULT_RUN_CONFIG, str(book_title), rights]
-                                   + [s["path"] for s in sources])
+                                   + [f"{s['path']}#{s['sha256']}" for s in sources])
         self.state.ensure_run(run_id, book_sha256, model_fingerprint,
                               engine_config_hash=stage_input_hash([self.config, self.router_cfg]))
         if self.state.should_skip(run_id, "S0", s0_hash, s0_paths):
@@ -304,6 +307,7 @@ class Pipeline:
                     "figure_id": fid, "source_id": e["source_id"], "page": e.get("page"),
                     "kind": e["kind"], "caption": e["caption"],
                     "char_start": e.get("char_start"), "char_end": e.get("char_end"),
+                    "anchor_kind": e.get("anchor_kind"),
                     "image_file": image_file,
                 })
             figures_obj = {"schema_version": "2.0", "book_sha256": book_sha256,
@@ -388,6 +392,16 @@ class Pipeline:
             # capabilities.json；保持为空数组，渲染阶段按本次 engines 过滤。
             # figure_refs：图注落在能力卡 char 区间内则挂接（2.0）。
             attach_figure_refs(caps, figures)
+            # 3.0：读图 → 能力卡（视觉模型）。未配置视觉模型 → 不产出任何解读（图仍交付）。
+            fig_cards = extract_figure_cards(figures, self.config, book_title=book_title,
+                                             full_text=full_text,
+                                             segments=segments["segments"])
+            if fig_cards:
+                caps["capabilities"].extend(fig_cards)
+                # extractor 枚举只描述「正文卡的抽取方式」，图解读卡另计数量；
+                # 改写 extractor 会破坏 schema 枚举（如 "heuristic+figure-insight"）。
+                caps["figure_cards"] = len(fig_cards)
+                log(f"    读图生成能力卡 {len(fig_cards)} 张（图示 → 要点，视觉模型）")
             self._write(s4_paths[0], caps, log)
             self.state.mark(run_id, "S4", s4_hash, s4_paths,
                             degraded=caps["extractor"] == "heuristic",
@@ -401,8 +415,9 @@ class Pipeline:
         # 纳入 fidelity 源码：改指标定义 / 未验证假设表后必须自动失效缓存，
         # 否则旧 fidelity_report.json 会被误当成新代码产物。
         fidelity_sources = sorted((Path(__file__).parent / "fidelity").glob("*.py"))
+        llm_sources_s5 = sorted((Path(__file__).parent / "llm").rglob("*"))
         s5_hash = stage_input_hash([s4_paths[0], s1_paths[0], DEFAULT_RUN_CONFIG]
-                                   + fidelity_sources)
+                                   + fidelity_sources + llm_sources_s5)
         if self.state.should_skip(run_id, "S5", s5_hash, s5_paths):
             log("S5 SKIP")
             caps_v = load_json(s5_paths[0])
@@ -414,8 +429,24 @@ class Pipeline:
                 char_map.get("map", char_map) if isinstance(char_map, dict) else char_map,
                 self.config,
             )
-            ledger = build_claim_ledger(caps_v, book_sha256, str(cache / "slices"))
-            fidelity = build_fidelity_report(caps_v, ledger, segments, quote_records, self.config)
+            # judge（可选）：groundedness / V2 / V3 的真实判定。
+            # 未配置 LLM → 不调用，指标保持 null（绝不用启发式假装有 judge 结果）。
+            judge_result = None
+            v1 = v1_cross_domain(caps_v, segments)
+            jcfg = self.config.get("llm_judge") or {}
+            if jcfg.get("enabled", True) and llm.available():
+                judge_result = judge_capabilities(caps_v, full_text, self.config,
+                                                  votes=int(jcfg.get("votes", 3)))
+                log(f"    judge 已运行：judged={judge_result['summary']['judged']}"
+                    f"（{judge_result['votes']} 票多数，fingerprint="
+                    f"{judge_result['model_fingerprint']}）")
+            else:
+                log("    judge 未运行（未配置 BOOKLEME_LLM_* 或 llm_judge.enabled=false）"
+                    "——groundedness/V2/V3 保持 null，不伪造")
+            ledger = build_claim_ledger(caps_v, book_sha256, str(cache / "slices"),
+                                        judge=judge_result, v1=v1)
+            fidelity = build_fidelity_report(caps_v, ledger, segments, quote_records,
+                                             self.config, judge=judge_result)
             self._write(s5_paths[0], caps_v, log)
             self._write(s5_paths[1], ledger, log)
             self._write(s5_paths[2], fidelity, log)

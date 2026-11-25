@@ -54,6 +54,8 @@
 
 ## 3. 4 个内置插件骨架要点
 
+> **状态（2026-11-25）**：4 个内置插件均已实现并落在 `bookleme/plugins/builtin/`：`coach_dialogue` / `knowledge_reference` / `professional_analysis` / `decision_checklist`，`bookleme plugin validate` 全部通过，loader 可自动发现、可被 `--genre` 指定、可被 router 命中。
+
 ### 3.1 `coach_dialogue`（教练型 → `[behavior_skill]`）
 
 - **一问一答状态机**：`opening → ask_q → await_answer → brief_reflect → next_q → … → blueprint → close`；含 `low_mood → skip_reverse`（低谷跳过反向推演）与 `resume → restore`（可中断续聊）分支。`initial = opening`，`terminal = [close]`。
@@ -63,12 +65,16 @@
 
 ### 3.2 `professional_analysis`（分析型 → `[behavior_skill, knowledge_pack]`）
 
+> **状态：已实现并内置**（`bookleme/plugins/builtin/professional_analysis.py`）。
+
 - **三阶段流水线**：① 叙事先行倒算 L/E3 → ② 三表验证「存在 > 事实 > 意见」+ 8 主题红旗 + A / 港 / 美口径 → ③ 观点裁决。
 - **证伪条件 + 证据绑定**：`capability_schema` 强制**每条结论硬必填 `falsification_condition`**（「若……则本判断作废」）与 `evidence_binding`（溯源到发言人 / 报表科目）；`voice_calibration.verdict_ownership = "evidence_bound"`。
 - `anti_patterns` 首条即「符合预期，仍需观察」和稀泥，另含「无口径表」「结论不绑证据」「无数据硬编」。
 - `output_contract`：约 1.3 万字 + 风险分级 + 尾部强制「还需要哪些数据」；`routing_rules.insufficient_data_policy = "ask"`（无专有数据时先追问，不假设填充）；`data_adapters/` 可插拔。
 
 ### 3.3 `decision_checklist`（清单型 → `[behavior_skill, knowledge_pack]`）
+
+> **状态：已实现并内置**（`bookleme/plugins/builtin/decision_checklist.py`）。
 
 - `capability_schema` 强制 4 字段：`threshold` / `tradeoff_matrix` / `decision_tree` / `not_applicable`。
 - 规则写成 `When X, do Y, because Z` **结构化表**（不是散文），装作者判断力。

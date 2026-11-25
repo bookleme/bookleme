@@ -1,5 +1,64 @@
 # Changelog
 
+## 未发布（2.1.0 候选 · 分支 feat/2.0）— judge 真值 + 读图能力卡 + 插件内置化
+
+三项按优先级推进，**版本号不变、不发 Release、不打 tag**，待实测通过后再发 2.1.0。
+
+### 亮点
+
+- **LLM judge 接入：groundedness / V2 / V3 从 `null` 变真值**
+  （`fidelity/judge.py` + 版本化 prompt `judge_v1.md` / `judge_v2_v1.md`）。
+  - **groundedness**：3 个不同角色（考据员 / 事实核查员 / 逆向怀疑者）独立判定，
+    **多数票**；`metric_type` 仍为 `heuristic`——分类依据是「依赖模型主观判断」，
+    与是否已接入无关（口径见 `docs/FIDELITY.md` §7）。
+  - **V2 预测力**：**独立一次调用，只给框架卡、不给原文上下文**（真 fresh-context），
+    模型自拟新情境问题并只按卡规则作答，再判断答案是否由卡规则唯一确定。
+  - **V3 独特性**：先过 `fidelity/common_sense_denylist.txt`（确定性前置过滤），
+    再由 judge 判定区分度。
+  - **V1 跨域佐证**：原本 `v1_cross_domain` 恒为空数组（声称 measured 却无数据），
+    现按 shingle 计数真实产出佐证 segment 列表。
+  - 诚实约定：未配置 LLM → 不调用、值保持 `null`（绝不用启发式假装有 judge 结果）；
+    单票失败不计票、全部失败记为**未知（None）而非 False**；`model_fingerprint`
+    与数值一同出现，换模型/换 prompt 即漂移。
+  - 实测（本地 mock 端点，28 张卡）：judge 3 票多数判定、`groundedness=1.0`、
+    `v2_pass_rate` / `v3_pass_rate` 有真值、`llm_calls=64`（16 卡 × 4 次）记账准确。
+- **读图 → 能力卡**（`capabilities/figures.py` + prompt `figure_insight_v1.md`）。
+  视觉模型看图，把图示里的信息提炼成 RIA 六段，产出一张带 `origin=figure`、
+  `confidence.tier=B` 的能力卡；`R_quote` 用**语料里的逐字切片**（图注或锚点处原文，
+  ≤24 字）保证可溯源，I/A/B 是模型解读。
+  - **网页图定位**：网页图片常只有 alt（alt 文本不在正文里、无法在语料中定位），
+    fetch 现在记录**图片前文的锚点片段**，S1 用它把图锚进语料
+    （`anchor_kind=context`），实测锚定率从 2/27 提升到 **33/35**（10 按图注 + 23 按上下文）。
+  - 诚实降级：未配置视觉模型 → 不产出任何解读（图仍提取、挂接、交付）；无位图
+    （矢量图）或无锚点 → 不做卡。
+- **插件内置化**：`professional_analysis`（此前是 `plugins/user/` 外挂）迁入
+  `plugins/builtin/`；新增内置 `decision_checklist`（PLUGIN_SPEC §3.3：4 字段
+  threshold / tradeoff_matrix / decision_tree / not_applicable + When X do Y because Z
+  结构化规则 + 《决策单》输出契约）。加载器现有 4 个内置体裁，`--genre` 可指定，
+  auto 路由可命中（`configs/router.json` 早已预留这两个体裁的权重与先验）。
+
+### Fixed
+
+- **`llm_calls` 漏记成功调用**：旧实现只在失败时计数，与模块文档「每次真实 HTTP
+  调用计一次」相反；现每次尝试（含被温度重试的那次）精确计一次。
+- **S0 缓存不失效**：S0 哈希只含源文件路径，重新抓取同一 URL（内容变、路径不变）
+  不会让缓存失效，旧 `sources.json` / `figures.json` 会被误当新结果复用；现哈希含
+  内容指纹（path#sha256）。
+- **V1 对短引文恒失效**：固定 13 字 shingle 比 8-24 字的 R_quote 还长，短引文永远
+  命中不到；现 shingle 长度取 `min(13, len(quote))`，门槛为引文 shingle 的一半。
+- **图解读卡引文过长顶破版权门**：60 字锚点 × 12 张卡把总引文比推到 4.95%（上限 3%），
+  被版权门正确拦下；现按本项目引文惯例收敛到 ≤24 字。
+- **schema 枚举越界**：图解读卡曾把 `extractor` 改成 `heuristic+figure-insight`，
+  与 schema 枚举冲突（流水线当场中止）；现不改 `extractor`，图卡数量另记
+  `figure_cards`。
+- `schema_check` 补 `pattern/minLength/maxLength` 执法（2.0 已修，本轮沿用）。
+
+### 回归
+
+新增 12 项测试（图注锚定两种方式、V2 fresh-context 不带上下文、投票失败=未知、
+V1 确定性、denylist、ledger 真实 V1/V2/V3、未接 judge 仍为 null、读图卡结构与
+逐字锚点、无位图/未锚定跳过、无视觉模型不产出、llm_calls 记账、视觉 payload 结构）。
+
 ## 2.0.0 (2026-11-24) — 多源知识编译：网页 + 论文 + 图表资产
 
 输入从「一本书」扩展到「书 + 网页 + 论文」，且**图必须用起来**：原文/原网页的图示

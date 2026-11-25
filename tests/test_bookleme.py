@@ -705,5 +705,218 @@ class TestFiguresAndFetch(unittest.TestCase):
         self.assertTrue(schema_validate(bad, load_json(SCHEMA_DIR / "figures.schema.json")))
 
 
+class TestJudgeAndFigureInsight(unittest.TestCase):
+    """3.0：LLM judge（groundedness/V2/V3）+ 读图 → 能力卡。"""
+
+    def _caps(self):
+        return {"extractor": "heuristic", "capabilities": [{
+            "capability_id": "CAP-0001",
+            "title": "重力问题排查",
+            "source_id": "SRC-001",
+            "span": {"segment_id": "seg-001", "char_start": 10, "char_end": 30},
+            "ria": {"R_quote": "先问三个问题再看选项", "I_rephrase": "按次序问三个问题再比较选项",
+                    "A1_author_case": "书中的奥德赛计划案例", "A2_user_trigger": "当用户说『我不知道该选什么』时",
+                    "A3_steps": ["问第一个问题", "问第二个问题", "比较选项"], "B_not_applicable": "紧急医疗场景不适用"},
+            "confidence": {"tier": "S", "score": 0.9},
+            "status": "verified",
+            "checks": {"quote_verified": True},
+        }]}
+
+    def test_judge_majority_and_v2v3(self):
+        from bookleme.fidelity import judge_capabilities
+        seen = []
+
+        def fake_call(prompt_name, values):
+            seen.append(prompt_name)
+            if prompt_name == "judge_v1":
+                # 三个角色：两票支持、一票反对 → 多数为 True
+                grounded = len([v for v in seen if v == "judge_v1"]) != 2
+                return {"grounded": grounded, "support": "引文写明了三个问题",
+                        "v3_pass": True, "v3_reason": "依赖本书的三问设定"}
+            return {"v2_question": "新情境问题", "v2_answer": "答案", "v2_pass": True}
+
+        res = judge_capabilities(self._caps(), "正文开始\n先问三个问题再看选项\n正文结束",
+                                 {"llm_judge": {"v2": True}}, votes=3, call=fake_call)
+        r = res["results"]["CAP-0001"]
+        self.assertTrue(r["grounded"], "三票中两票支持应为 True")
+        self.assertEqual(r["grounded_votes"], [True, False, True])
+        self.assertTrue(r["v2_pass"])
+        self.assertEqual(r["v2_question"], "新情境问题")
+        self.assertTrue(r["v3_pass"])
+        self.assertEqual(res["summary"]["judged"], 1)
+        self.assertTrue(res["model_fingerprint"])
+
+    def test_judge_all_votes_fail_yields_unknown_not_false(self):
+        from bookleme.fidelity import judge_capabilities
+
+        def boom(prompt_name, values):
+            raise RuntimeError("network down")
+
+        res = judge_capabilities(self._caps(), "x", {}, votes=3, call=boom)
+        r = res["results"]["CAP-0001"]
+        self.assertIsNone(r["grounded"], "全部失败必须记为未知(None)，不得记为 False")
+        self.assertIsNone(r["v2_pass"])
+        self.assertGreater(res["summary"]["failed_calls"], 0)
+        self.assertTrue(res["errors"])
+
+    def test_judge_prompt_uses_fresh_context_for_v2(self):
+        from bookleme.fidelity import judge_capabilities
+        captured = {}
+
+        def fake_call(prompt_name, values):
+            captured[prompt_name] = dict(values)
+            return {"grounded": True, "v3_pass": True} if prompt_name == "judge_v1" \
+                else {"v2_pass": True, "v2_question": "q", "v2_answer": "a"}
+
+        judge_capabilities(self._caps(), "先问三个问题再看选项 上下文", {}, votes=1, call=fake_call)
+        self.assertIn("context", captured["judge_v1"])
+        self.assertNotIn("context", captured["judge_v2_v1"],
+                         "V2 必须 fresh-context：不得把原文上下文喂给预测力 judge")
+        self.assertIn("rephrase", captured["judge_v2_v1"])
+
+    def test_v1_cross_domain_is_deterministic(self):
+        from bookleme.fidelity import v1_cross_domain
+        segs = {"segments": [
+            {"segment_id": "seg-001", "text": "先问三个问题再看选项，这是第一步"},
+            {"segment_id": "seg-002", "text": "先问三个问题再看选项，在别处也这样说"},
+            {"segment_id": "seg-003", "text": "完全无关的一段话，讲的是别的事情"},
+        ]}
+        out = v1_cross_domain(self._caps(), segs)
+        self.assertEqual(out["CAP-0001"], ["seg-002"],
+                         "只在其他 segment 命中同一表述才计佐证；本 segment 不算")
+        self.assertEqual(v1_cross_domain(self._caps(), segs), out, "V1 必须确定性可复现")
+
+    def test_denylist_filter_flags_generic_claims(self):
+        from bookleme.fidelity import common_sense_hits, load_denylist
+        dl = load_denylist()
+        self.assertTrue(dl, "常识短语表必须存在且非空")
+        hits = common_sense_hits("遇到问题要多沟通，保持耐心", dl)
+        self.assertIn("要多沟通", hits)
+        self.assertEqual(common_sense_hits("先问三个问题再看选项", dl), [])
+
+    def test_ledger_carries_real_v1_v2_v3(self):
+        from bookleme.fidelity import build_claim_ledger
+        ledger = build_claim_ledger(self._caps(), "sha", "/tmp/slices",
+                                    judge={"enabled": True, "votes": 3, "model_fingerprint": "fp",
+                                           "results": {"CAP-0001": {
+                                               "grounded": True, "grounded_votes": [True, True, True],
+                                               "v2_pass": True, "v2_question": "q", "v2_answer": "a",
+                                               "v3_pass": False, "v3_reason": "偏通用",
+                                               "denylist_hits": ["要多沟通"], "support": "有出处"}}},
+                                    v1={"CAP-0001": ["seg-002"]})
+        claim = ledger["claims"][0]
+        self.assertEqual(claim["verification"]["v1_cross_domain"], ["seg-002"])
+        self.assertEqual(claim["verification"]["v2_pass"], True)
+        self.assertEqual(claim["verification"]["v3_pass"], False)
+        self.assertEqual(claim["verification"]["denylist_hits"], ["要多沟通"])
+        self.assertEqual(claim["groundedness"], 1.0)
+
+    def test_fidelity_report_groundedness_null_without_judge(self):
+        from bookleme.fidelity import build_claim_ledger, build_fidelity_report
+        caps = self._caps()
+        ledger = build_claim_ledger(caps, "sha", "/tmp/slices")
+        rep = build_fidelity_report(caps, ledger, {"segments": []}, [], load_run_config())
+        self.assertIsNone(rep["metrics"]["groundedness"]["value"], "未接 judge 必须为 null，不伪造")
+        self.assertFalse(rep["judge_summary"]["enabled"])
+
+    def test_figure_insight_card_uses_caption_as_anchor(self):
+        from bookleme.capabilities import extract_figure_cards
+        from unittest import mock
+        figs = [{"figure_id": "FIG-001", "source_id": "SRC-001", "page": 3,
+                 "caption": "Figure 1: 整体结构", "char_start": 100, "char_end": 118,
+                 "image_file": "cache/x/figures/FIG-001.png"}]
+        calls = []
+        corpus = ("前言铺垫。" * 20) + "Figure 1: 整体结构" + ("后续讨论。" * 20)
+        caption_pos = corpus.index("Figure 1: 整体结构")
+        figs[0]["char_start"] = caption_pos
+
+        def fake_call(prompt_name, values, image_path):
+            calls.append((prompt_name, image_path))
+            return {"title": "整体结构图", "I_rephrase": "这张图给出方法的模块与数据流",
+                    "A1_author_case": "图中含编码器与解码器两栏",
+                    "A2_user_trigger": "当用户问『整体怎么串起来』时",
+                    "A3_steps": ["先看左侧输入", "再看中间编码器", "最后看右侧输出"],
+                    "B_not_applicable": "图只给结构，不含具体超参，不能据此定数值"}
+
+        with tempfile.TemporaryDirectory() as td:
+            img = Path(td) / "cache" / "x" / "figures" / "FIG-001.png"
+            img.parent.mkdir(parents=True)
+            img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+            with mock.patch("bookleme.llm.vision_available", return_value=True), \
+                 mock.patch("bookleme.config.ROOT", Path(td)):
+                cards = extract_figure_cards(figs, {"figure_insight": {"enabled": True}},
+                                             book_title="测试书", full_text=corpus,
+                                             segments=[{"segment_id": "seg-001", "char_range": [0, len(corpus)]}],
+                                             call=fake_call)
+        self.assertEqual(len(cards), 1)
+        card = cards[0]
+        quote = card["ria"]["R_quote"]
+        self.assertTrue("Figure 1: 整体结构".startswith(quote),
+                        "R_quote 必须是图注的逐字前缀（≤24 字锚点）")
+        self.assertLessEqual(len(quote), 24, "图解读卡锚点按项目引文惯例收敛到 ≤24 字")
+        self.assertEqual(card["figure_refs"], ["FIG-001"])
+        self.assertEqual(card["confidence"]["tier"], "B")
+        self.assertEqual(card["origin"], "figure")
+        self.assertEqual(len(card["ria"]["A3_steps"]), 3)
+        self.assertEqual(calls[0][0], "figure_insight_v1")
+
+    def test_figure_insight_skips_unusable_figures(self):
+        from bookleme.capabilities import extract_figure_cards
+        from unittest import mock
+        figs = [
+            {"figure_id": "FIG-001", "source_id": "SRC-001", "page": 1, "caption": "图 1 x",
+             "char_start": 10, "char_end": 14, "image_file": None},          # 无位图
+            {"figure_id": "FIG-002", "source_id": "SRC-001", "page": 1, "caption": "图 2 x",
+             "char_start": None, "char_end": None, "image_file": "a.png"},   # 未锚定
+        ]
+        with mock.patch("bookleme.llm.vision_available", return_value=True):
+            cards = extract_figure_cards(figs, {"figure_insight": {"enabled": True}}, call=None)
+        self.assertEqual(cards, [], "无位图或无逐字锚点的图不得产出解读卡")
+
+    def test_figure_insight_disabled_without_vision_model(self):
+        from bookleme.capabilities import extract_figure_cards
+        from unittest import mock
+        figs = [{"figure_id": "FIG-001", "source_id": "SRC-001", "page": 1, "caption": "图 1 x",
+                 "char_start": 10, "char_end": 14, "image_file": "a.png"}]
+        with mock.patch("bookleme.llm.vision_available", return_value=False):
+            cards = extract_figure_cards(figs, {"figure_insight": {"enabled": True}}, call=None)
+        self.assertEqual(cards, [], "未配置视觉模型 → 不产出任何解读（不伪造）")
+
+    def test_llm_call_counting_counts_success(self):
+        from unittest import mock
+        import bookleme.llm as llm_mod
+        llm_mod.reset_counters()
+        with mock.patch.dict("os.environ", {llm_mod.ENV_BASE: "https://x/v1",
+                                            llm_mod.ENV_KEY: "k",
+                                            llm_mod.ENV_MODEL: "m"}), \
+             mock.patch.object(llm_mod, "_post", return_value={
+                 "choices": [{"message": {"content": "{\"ok\": true}"}}]}):
+            llm_mod.chat_json("hi")
+        self.assertEqual(llm_mod.llm_calls, 1, "成功的真实 HTTP 调用必须计入 llm_calls")
+        llm_mod.reset_counters()
+
+    def test_vision_payload_has_image_part(self):
+        from unittest import mock
+        import bookleme.llm as llm_mod
+        captured = {}
+
+        def fake_post(url, payload, key, to):
+            captured.update(payload)
+            return {"choices": [{"message": {"content": "{\"title\": \"t\"}"}}]}
+
+        with tempfile.TemporaryDirectory() as td:
+            img = Path(td) / "a.png"
+            img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+            with mock.patch.dict("os.environ", {llm_mod.ENV_BASE: "https://x/v1",
+                                                llm_mod.ENV_KEY: "k",
+                                                llm_mod.ENV_MODEL: "m"}), \
+                 mock.patch.object(llm_mod, "_post", fake_post):
+                llm_mod.chat_vision_json("看这张图", image_path=img)
+        content = captured["messages"][-1]["content"]
+        self.assertEqual(content[0]["type"], "text")
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

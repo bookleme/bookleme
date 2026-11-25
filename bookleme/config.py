@@ -31,9 +31,13 @@ def load_json(path: Path) -> dict:
 
 
 def dump_json(path: Path, obj: object) -> None:
-    """Atomic write: temp file + os.replace, so a crashed stage never leaves a half file."""
+    """Atomic write: temp file + os.replace, so a crashed stage never leaves a half file.
+
+    临时文件名带进程号：并发跑多个流水线（如 agent 并行 dogfood）时，各进程若共用
+    同一个 .tmp 文件名会互相覆盖写入，产生损坏的 JSON。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         json.dump(obj, fh, ensure_ascii=False, indent=2, sort_keys=False)
         fh.write("\n")
