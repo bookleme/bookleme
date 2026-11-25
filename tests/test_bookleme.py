@@ -477,7 +477,7 @@ class TestOutputContractRendering(unittest.TestCase):
         self.assertIn("必备字段（缺一不可）：当前状态打分 / 重新定义后的真问题 / 三个平等 A 计划 / 证伪/放弃条件 / 最小原型。",
                       bs_md, "required_fields 必须渲染进 SKILL.md")
         self.assertIn("交付约定：以 Markdown 文件落盘（模板名 `blueprint.md`", bs_md)
-        self.assertIn("必备字段（缺一不可）：框架名 / 出处 / 可执行步骤 / 边界。", kp_md)
+        self.assertIn("必备字段（缺一不可）：框架名 / 出处 / 可执行步骤 / 边界 / 还需要哪些数据。", kp_md)
         self.assertIn("模板名 `answer.md`", kp_md)
 
     def test_blueprint_template_referenced_and_has_checklist(self):
@@ -1353,6 +1353,37 @@ class TestPatch211Fixes(unittest.TestCase):
         for f in missing:
             self.assertFalse(any(f["images"].values()),
                              "标记为缺失的图不应同时带着路径（否则又变回坏图）")
+
+
+    def test_conversation_skill_supports_pause_resume_and_progress(self):
+        """对话型体裁的三条交互纪律：可见进度 / 可打断可收回 / 不打断。"""
+        from bookleme.plugins import load_plugins
+        registry, _ = load_plugins()
+        p = registry["coach_dialogue"]
+        constraints = " ".join(p.hard_constraints)
+        self.assertIn("第几问", constraints, "每轮必须交代进度")
+        self.assertIn("再按能收回", constraints, "用户改主意/想回上一问时要能收回")
+        self.assertIn("到此为止", constraints, "用户要停时必须立即收束")
+        sm = p.state_machine
+        self.assertIn("paused", sm["states"], "需要可中断的状态")
+        edges = {(t["from"], t["to"]) for t in sm["transitions"]}
+        self.assertTrue(any(f == "paused" for f, _ in edges), "必须有进入 paused 的路径")
+        self.assertTrue(any(t == "paused" for _, t in edges), "必须有从 paused 出来的路径")
+
+    def test_all_genres_share_one_delivery_skeleton(self):
+        """同一件事处处一样：四个体裁用同一套呈现动线。"""
+        from bookleme.plugins import load_plugins
+        registry, _ = load_plugins()
+        for gid, p in registry.items():
+            self.assertIn("呈现顺序固定", p.skill_template,
+                          f"{gid} 的交付模板缺统一呈现动线")
+
+    def test_knowledge_reference_asks_for_missing_data(self):
+        from bookleme.plugins import load_plugins
+        registry, _ = load_plugins()
+        contract = registry["knowledge_reference"].output_contract
+        self.assertIn("还需要哪些数据", contract["sections"])
+        self.assertIn("还需要哪些数据", contract["required_fields"])
 
 
 if __name__ == "__main__":

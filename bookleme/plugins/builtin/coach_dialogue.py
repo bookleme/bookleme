@@ -36,6 +36,7 @@ $sections
 
 字数区间：$min_chars - $max_chars 字。
 结论归属：$verdict_ownership（用户自己说出结论，教练不代劳）。
+呈现顺序固定：**先结论**（一句话就能用的判断）→ **再依据**（带出处、可逐字追溯）→ **再边界**（不适用条件 / 证伪条件）→ **最后「还需要哪些数据」**。
 """).template,
     hard_constraints=[
         "每轮只问一个问题：你问 → 用户答 → 简短而走心地反馈 → 再问下一题；禁止一次性抛出全部问题。",
@@ -44,10 +45,13 @@ $sections
         "不评判用户的任何选择，不替用户做决定；结论必须由用户自己说出。",
         "情绪护栏：察觉用户处在低谷或情绪脆弱时，跳过反向推演，先陪他找回能回血的东西，做完立刻转回正面。",
         "支持可中断续聊：每轮问答结束把 current_state / asked_questions / answers 写入 state.json（用 scripts/state_io.py）；恢复会话时先读取 state.json 的 current_state / asked_questions，再接着问。",
+        "每轮结束时用一句话说明当前进度（第几问 / 共 6-9 问），让用户知道还剩多少；进度只作交代，不催答、不连发。",
+        "用户想跳过某问、想回上一问、或改主意时，立刻照办并说明现在进行到哪一步——按下去有回应，再按能收回。",
+        "用户说「先这样」「回头再说」「到此为止」时立即收束：给出当前已得的结论与下一步，不再追问、不再出题。",
     ],
     state_machine={
         "initial": "opening",
-        "states": ["opening", "ask_q", "await_answer", "brief_reflect", "next_q", "blueprint", "close"],
+        "states": ["opening", "ask_q", "await_answer", "brief_reflect", "next_q", "blueprint", "paused", "close"],
         "transitions": [
             {"from": "opening", "to": "ask_q", "on": "start"},
             {"from": "ask_q", "to": "await_answer", "on": "question_asked"},
@@ -56,9 +60,15 @@ $sections
             {"from": "next_q", "to": "ask_q", "on": "continue"},
             {"from": "ask_q", "to": "blueprint", "on": "all_questions_done"},
             {"from": "blueprint", "to": "close", "on": "blueprint_delivered"},
+            {"from": "ask_q", "to": "paused", "on": "user_pauses"},
+            {"from": "await_answer", "to": "paused", "on": "user_pauses"},
+            {"from": "paused", "to": "close", "on": "wrap_up_now"},
+            {"from": "paused", "to": "ask_q", "on": "resume"},
         ],
         "terminal": ["close"],
-        "guards": ["low_mood → skip_reverse", "resume → restore_from_state"],
+        "guards": ["low_mood → skip_reverse", "resume → restore_from_state",
+                   "user_pauses → paused（立刻收束，不追问）",
+                   "paused → resume 可继续，paused → wrap_up_now 可收尾"],
     },
     output_contract={
         "artifact": "个人人生设计蓝图",
@@ -109,8 +119,8 @@ $sections
     default_engines=["behavior_skill"],
     engine_kind="behavior",
     extra_sections={
-        "state_guide": "运行期状态写入 <state_dir>/<slug>/<session_id>/state.json：state_dir 取环境变量 BOOKLEME_STATE_DIR，未设置时默认 ~/.bookleme/sessions（scripts/state_io.py 的 load/save 已内置该默认值，state_dir 可省略）。每轮问答结束调用 save 追加进度，恢复会话时先 load 再接着问。技能包内 state/schema.json 与 scripts/state_io.py 保持只读。",
-        "session_map": "完整会话（多轮教练流程）默认阶段序：① 真问题甄别（含重力问题过滤）→ ② 现状仪表盘 → ③ 指南针（工作观+人生观）→ ④ 能量地图 → ⑤ 锚问题 → ⑥ 奥德赛计划 → ⑦ 四维评分与路线取舍 → ⑧ 原型行动清单 + 失败免疫收尾。书里没有对应框架的阶段跳过并在结果中说明，不要硬套。阶段顺序可依用户回答微调，但全程主问题 6-9 个、每轮只问一题；每阶段的框架卡按 topic-index 的触发语定位，不写死编号。恢复会话时用 state.json 的 asked_questions 对照本图定位断点。",
+        "state_guide": "运行期状态写入 <state_dir>/<slug>/<session_id>/state.json：state_dir 取环境变量 BOOKLEME_STATE_DIR，未设置时默认 ~/.bookleme/sessions（scripts/state_io.py 的 load/save 已内置该默认值，state_dir 可省略）。每轮问答结束调用 save 追加进度，恢复会话时先 load 再接着问。技能包内 state/schema.json 与 scripts/state_io.py 保持只读。**中断与恢复**：用户说「先这样/回头再说」→ 立刻切到 paused 状态，收束出当前结论与下一步就停，不追问、不出题；用户说「接着上次」→ 读 state.json 的 current_state 与 asked_questions 回到 paused 之前的进度继续问，不重头再来。**进度可见**：每轮反馈末尾用一句话交代「第 N 问 / 共 6-9 问」，只作交代不催答。",
+        "session_map": "完整会话（多轮教练流程）默认阶段序：① 真问题甄别（含重力问题过滤）→ ② 现状仪表盘 → ③ 指南针（工作观+人生观）→ ④ 能量地图 → ⑤ 锚问题 → ⑥ 奥德赛计划 → ⑦ 四维评分与路线取舍 → ⑧ 原型行动清单 + 失败免疫收尾。书里没有对应框架的阶段跳过并在结果中说明，不要硬套。阶段顺序可依用户回答微调，但全程主问题 6-9 个、每轮只问一题；用户想跳过某问或想回上一问时照办并说明当前进行到哪一步；每阶段的框架卡按 topic-index 的触发语定位，不写死编号。恢复会话时用 state.json 的 asked_questions 对照本图定位断点。",
         "data_dependency": "本 Skill 不绑定任何专有数据库；缺少用户陈述时先追问，不用假设填充。",
     },
 )
