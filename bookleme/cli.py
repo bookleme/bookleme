@@ -86,6 +86,10 @@ def _build_parser() -> argparse.ArgumentParser:
     jdg.add_argument("--run-id", default=None, help="run id（默认最近一次）")
     jdg.add_argument("--apply", default=None,
                      help="回填宿主 Agent 写的 answers.json（不填则导出工单）")
+    jdg.add_argument("--apply-capabilities", default=None,
+                     help="回填宿主 Agent 提炼的能力卡（capability answers.json）")
+    jdg.add_argument("--kind", choices=["judge", "capability"], default="judge",
+                     help="导出哪种工单：judge=忠实度判定 / capability=能力卡提炼")
     jdg.add_argument("--out", default=None, help="工单输出路径（默认写到 run 目录）")
     jdg.add_argument("--json", action="store_true", help="输出 JSON（默认给人话版）")
     return parser
@@ -324,6 +328,36 @@ def _judge(args) -> int:
         return 1
     caps = load_json(caps_path)
 
+    # ---- 回填能力卡抽取（宿主承接）----
+    if args.apply_capabilities:
+        from .judge.capability_apply import apply_to_run as apply_caps
+        try:
+            result = apply_caps(run_id, Path(args.apply_capabilities), config=cfg)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return 1
+        if not result.get("applied"):
+            print("[ERROR] 没有任何一张卡通过契约校验：", file=sys.stderr)
+            for r in result.get("rejected", [])[:10]:
+                print(f"    - {r.get('segment_id', '')} {r.get('heading', '')}："
+                      f"{r.get('reason', '')}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        print(f"run {run_id} · 能力卡已回填")
+        print(f"  通过契约的卡 {result['cards']} 张 · 抽取方式 {result['extractor']}")
+        rej = result.get("rejected") or []
+        if rej:
+            print(f"  未通过 {len(rej)} 张（如实报告，不静默丢弃）：")
+            for r in rej[:5]:
+                print(f"    - {r.get('segment_id', '')}：{r.get('reason', '')}")
+        print(f"  能力卡 {result['capabilities_path']}")
+        print()
+        print("下一步：重跑 `bookleme run` 让渲染层用新能力卡重新出产物"
+              "（同一本书会命中缓存，快速）；或用 --install 直接重装。")
+        return 0
+
     # ---- 回填模式 ----
     if args.apply:
         try:
@@ -350,9 +384,49 @@ def _judge(args) -> int:
         alt = run_dir / "full_text.txt"
         full_text_path = alt if alt.is_file() else None
     if full_text_path is None:
-        print(f"[ERROR] 没有语料文件，无法提供 judge 上下文（{cache_dir}）", file=sys.stderr)
+        print(f"[ERROR] 没有语料文件，无法提供工单上下文（{cache_dir}）", file=sys.stderr)
         return 1
     full_text = full_text_path.read_text(encoding="utf-8", errors="replace")
+
+    # 能力卡抽取工单（--kind capability）
+    if args.kind == "capability":
+        from .judge.capability import build_worklist as build_cap_worklist
+        segments_path = Path(cache_dir) / "segments.json"
+        if not segments_path.is_file():
+            print(f"[ERROR] 没有分段文件：{segments_path}", file=sys.stderr)
+            return 1
+        segments = load_json(segments_path)
+        genre_fields: dict = {}
+        for cap in caps.get("capabilities", []):
+            gf = cap.get("genre_fields")
+            if isinstance(gf, dict) and gf:
+                genre_fields = {k: "" for k in gf}
+                break
+        worklist = build_cap_worklist(full_text, segments["segments"],
+                                      metrics.get("book_title", ""),
+                                      genre_fields=genre_fields)
+        out_path = Path(args.out) if args.out else (run_dir / "capability_worklist.json")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(worklist, ensure_ascii=False, indent=2) + "\n",
+                            encoding="utf-8")
+        if args.json:
+            print(json.dumps({"run_id": run_id, "worklist_path": str(out_path),
+                              "item_count": worklist["item_count"]},
+                             ensure_ascii=False, indent=2))
+            return 0
+        print(f"run {run_id} · 能力卡抽取工单已导出")
+        print(f"  待提炼章节 {worklist['item_count']} 个")
+        print(f"  工单   {out_path}")
+        print()
+        print("接下来（宿主 Agent 承接，你不需要配任何 API key）：")
+        print(f"  1. 读 {out_path}，为每个章节提炼一张能力卡（可执行规则 + 案例 + 触发语 + 步骤 + 边界）")
+        print("  2. 结果写成 capability_answers.json：")
+        print('       {"cards": {"<segment_id>": {"title": "…", "R_quote": "…", '
+              '"I_rephrase": "…", "A1_author_case": "…", "A2_user_trigger": "…", '
+              '"A3_steps": ["…"], "B_not_applicable": "…"}}}')
+        print(f"  3. 回填：python3 -m bookleme judge --run-id {run_id} "
+              f"--apply-capabilities capability_answers.json")
+        return 0
 
     jcfg = cfg.get("llm_judge") or {}
     worklist = build_worklist(caps, full_text, cfg,

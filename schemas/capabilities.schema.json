@@ -6,7 +6,7 @@
   "properties": {
     "schema_version": { "type": "string" },
     "book_sha256": { "type": "string" },
-    "extractor": { "type": "string", "enum": ["deterministic-markup", "heuristic", "llm"] },
+    "extractor": { "type": "string", "enum": ["deterministic-markup", "heuristic", "llm", "host-agent"] },
     "capabilities": {
       "type": "array",
       "items": {

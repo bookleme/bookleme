@@ -1626,6 +1626,114 @@ class TestHtmlContentQuality(unittest.TestCase):
             self.assertNotIn("behavior_skill", result["engines"])
 
 
+class TestHostAgentCapabilityChannel(unittest.TestCase):
+    """宿主 Agent 承接 S4 抽取：让能力卡有真方法论，而不是模板句。
+
+    背景：heuristic 抽取器只会填「按「X」判断情境」这种模板句——它没有知识，
+    等于把「去读原文」的活推回给用户。用户要的是结论。
+    """
+
+    def _seg(self, sid="seg-001", heading="Controlling staleness"):
+        return {"segment_id": sid, "heading": heading, "level": 2,
+                "char_range": [0, 400], "token_est": 200, "confidence": 0.9,
+                "method": "headings", "parent_id": "", "figure_text_lost": False}
+
+    def _body(self):
+        return ("We measure policy staleness as the gap between the policy version "
+                "used to generate a token and the learner's version when it trains "
+                "on that token. Rocket is an asynchronous RL framework by design, "
+                "so the learner continues updating while rollouts run. " * 3)
+
+    def _card(self, **over):
+        card = {
+            "title": "Controlling staleness",
+            "R_quote": "We measure policy staleness as the gap between the policy version",
+            "I_rephrase": ("把策略陈旧度当成可观测、可调的一等指标：它等于生成 token "
+                           "所用策略版本与学习器训练该 token 时版本的差距；差距变大会"
+                           "让训练转离策略，要设上限并定期检查。"),
+            "A1_author_case": "最大规模运行混用分钟级任务与数小时长程 agentic 任务。",
+            "A2_user_trigger": "当用户说「staleness 怎么控制」时",
+            "A3_steps": ["定义并测量陈旧度", "检查概率差是否随陈旧度上升", "设上限并定期检查"],
+            "B_not_applicable": "不适用于同步 RL——同步训练中采样与训练用同一版本策略。",
+            "genre_fields": {"falsification_condition": "若训练是同步的，本判断作废。"},
+        }
+        card.update(over)
+        return card
+
+    def test_quote_must_be_verbatim(self):
+        """引文必须逐字在原文里——这是版权与溯源的锚点。"""
+        from bookleme.judge.capability import validate_card
+        ok, why = validate_card(self._card(), self._body(), {})
+        self.assertTrue(ok, why)
+        ok2, why2 = validate_card(self._card(R_quote="不是原文的句子内容在这里"), self._body(), {})
+        self.assertFalse(ok2)
+        self.assertIn("逐字", why2)
+
+    def test_rephrase_cannot_copy_quote(self):
+        """规则不得照抄原文——照抄等于没提炼。"""
+        from bookleme.judge.capability import validate_card
+        # 照抄引文并扩写成足够长的句子：长度合规，但与引文有 13 字以上连续重复
+        copied = ("We measure policy staleness as the gap between the policy version "
+                  "used to generate a token and the learner version when it trains on "
+                  "that token, so it must be set as a limit and checked regularly.")
+        ok, why = validate_card(self._card(I_rephrase=copied), self._body(), {})
+        self.assertFalse(ok)
+        self.assertIn("重复", why)
+
+    def test_worklist_carries_full_body(self):
+        """工单必须带章节正文——宿主要提炼方法论就得看到原文。"""
+        from bookleme.judge.capability import build_worklist
+        wl = build_worklist(self._body(), [self._seg()], "测试书")
+        self.assertEqual(wl["item_count"], 1)
+        item = wl["items"][0]
+        self.assertIn("policy staleness", item["body"])
+        self.assertEqual(item["segment_id"], "seg-001")
+
+    def test_apply_answers_rejects_bad_cards(self):
+        """不合契约的卡必须被拒——如实报告，不静默接受。"""
+        from bookleme.judge.capability import apply_answers
+        blocks, rejected = apply_answers(
+            self._body(), [self._seg()],
+            {"cards": {"seg-001": self._card(R_quote="这段根本不是原文里的句子")}},
+            genre_fields={})
+        self.assertEqual(len(blocks), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("逐字", rejected[0]["reason"])
+
+    def test_source_quote_ratio_uses_source_not_artifact(self):
+        """比例门必须以源文为分母。
+
+        背景：早先用「引文/产物字数」，那测的是书的长度不是抄了多少——
+        同样 1383 字引文，在 25K 字文章上占 7.5%，300K 字的书上只占 0.77%。
+        改成 source-relative 后，比例只随**源文**变长而下降，与产物长短无关。
+        """
+        from bookleme.fidelity.overlap import source_quote_ratio
+        quotes = ["x" * 100] * 10          # 共 1000 字引文
+        # 同一份引文，源文变长 → 比例下降（这是正确刻度的应有行为）
+        short = source_quote_ratio(quotes, "y" * 25000)
+        long_ = source_quote_ratio(quotes, "y" * 300000)
+        self.assertGreater(short, long_)
+        self.assertAlmostEqual(short, 1000 / 25000, places=6)
+        # 极短源文用分母下限，避免「书短被重罚」：1000 字引文 / 100 字源文
+        # 若按真实源文算是 1000%，按下限只算 5%
+        tiny = source_quote_ratio(quotes, "y" * 100)
+        self.assertLess(tiny, 0.06)
+        # 关键：分母下限之下，短源文不再被重罚（与长源文同一量级）
+        self.assertAlmostEqual(tiny, source_quote_ratio(quotes, "y" * 20000),
+                               places=6)
+
+    def test_host_capabilities_survive_pipeline_rerun(self):
+        """宿主卡落盘后，管线重跑要用它——否则「回填→重跑」闭环不成立。"""
+        import json as _json
+        from bookleme.config import CACHE_DIR
+        host_file = Path(CACHE_DIR) / "host_capabilities.json"
+        if not host_file.is_file():
+            self.skipTest("当前缓存没有宿主卡（尚未回填过）")
+        data = _json.loads(host_file.read_text(encoding="utf-8"))
+        self.assertEqual(data.get("channel"), "host_agent")
+        self.assertTrue(data.get("blocks"))
+
+
 class TestHostAgentJudgeChannel(unittest.TestCase):
     """宿主 Agent 承接 judge：用户不需要配任何 API key。
 

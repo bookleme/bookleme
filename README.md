@@ -226,9 +226,26 @@ python3 -m bookleme judge --apply answers.json   # 回填 → groundedness / V2 
 分工是清楚的：
 
 - **确定性那半留在 Python**：引文逐字回验、shingle 重叠、覆盖率、版权门 —— measured 指标；
-- **主观那半交给宿主 Agent**：groundedness（断言是否真被原文支持）、V2（预测力）、
-  V3（独特性）本质是语义判断，宿主用自己的推理能力逐条判，比绕一圈调外部 API
-  更直接，也不用用户多配一把密钥。
+- **主观那半交给宿主 Agent**：能力卡提炼（可执行规则 + 作者案例 + 触发语 + 步骤 + 边界）、
+  groundedness（断言是否真被原文支持）、V2（预测力）、V3（独特性）——本质是语义判断，
+  宿主用自己的推理能力逐条做，比绕一圈调外部 API 更直接，也不用用户多配一把密钥。
+
+两条工单：
+
+```bash
+python3 -m bookleme run --input <书>              # 编译；自动导出两份工单
+python3 -m bookleme judge --kind capability        # 能力卡抽取工单（可选重新导出）
+python3 -m bookleme judge --kind judge             # 忠实度判定工单
+#   → 宿主 Agent 读工单逐条做，写答案 JSON
+python3 -m bookleme judge --apply-capabilities capability_answers.json
+python3 -m bookleme judge --apply answers.json
+#   → 回填后重跑 bookleme run，渲染层用新能力卡重新出产物
+```
+
+> **为什么能力卡必须由宿主提炼**：`capabilities/extract.py` 的 heuristic 抽取器只会填
+> 模板句（「按「X」判断情境，再决定是否套用该方法」）——它没有知识，等于把
+> 「去读原文」的活推回给用户。用户要的是结论，不是原文链接。宿主承接后，
+> 每张卡都带上可执行规则、书中案例（含可核查数字）、触发语、执行步骤与不适用边界。
 
 回填走与在线 judge **完全相同**的归约逻辑（多视角多数票、平票=未决），两种来源的
 指标口径一致、可比。

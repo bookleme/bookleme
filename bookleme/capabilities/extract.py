@@ -276,10 +276,21 @@ def _segment_for(pos: int, segments: list[dict]) -> str:
 
 def extract_capabilities(full_text: str, segments: list[dict], config: dict,
                          book_title: str = "",
-                         genre_fields: dict | None = None) -> dict:
+                         genre_fields: dict | None = None,
+                         host_blocks: list[dict] | None = None) -> dict:
+    """抽取原子能力卡。
+
+    `host_blocks`：宿主 Agent 承接抽取的结果（见 bookleme/judge/capability.py）。
+    传了就直接用它 —— 这是「零配置拿到真内容」的通道：BookLeme 是 harness，
+    在场调它的那个智能体本身就是大模型，让用户配 API key 让它自己调外部模型
+    是把在场能做的事外包出去。
+    """
     genre_fields = genre_fields or {}
     blocks = _parse_markup(full_text)
     extractor = "deterministic-markup"
+    if host_blocks:
+        blocks = host_blocks
+        extractor = "host-agent"
     if not blocks:
         from .. import llm as llm_mod
         if llm_mod.available():
@@ -293,6 +304,7 @@ def extract_capabilities(full_text: str, segments: list[dict], config: dict,
             extractor = "heuristic"
 
     tier, score = {"deterministic-markup": ("S", 0.9),
+                   "host-agent": ("B", 0.7),
                    "llm": ("B", 0.7),
                    "heuristic": ("C", 0.4)}[extractor]
     caps = []

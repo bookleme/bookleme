@@ -58,6 +58,26 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _load_host_blocks(cache: Path, run_id: str) -> list[dict] | None:
+    """载入宿主 Agent 承接抽取的能力卡（若已回填）。
+
+    宿主判定结果落在 `cache/host_capabilities.json`（由 `bookleme judge
+    --apply-capabilities` 写入）。有就用它 —— 这是「零配置拿到真内容」的
+    关键：heuristic 模板句没有知识，宿主承接的卡才有。
+    """
+    p = Path(cache) / "host_capabilities.json"
+    if not p.is_file():
+        return None
+    try:
+        data = load_json(p)
+    except (OSError, ValueError):
+        return None
+    blocks = data.get("blocks")
+    if isinstance(blocks, list) and blocks:
+        return blocks
+    return None
+
+
 class Logger:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -470,8 +490,14 @@ class Pipeline:
             log("S4 SKIP")
             caps = load_json(s4_paths[0])
         else:
+            # 抽取通道优先级：宿主承接 > 外部模型 > heuristic 模板句。
+            # heuristic 只会填「按「X」判断情境」这种模板句 —— 没有知识，
+            # 等于把「去读原文」的活推回给用户。所以只要有宿主承接的能力卡，
+            # 就用它，不再退化到模板句。
+            host_blocks = _load_host_blocks(cache, run_id)
             caps = extract_capabilities(full_text, segments["segments"], self.config,
-                                        book_title=book_title, genre_fields=genre_fields)
+                                        book_title=book_title, genre_fields=genre_fields,
+                                        host_blocks=host_blocks)
             caps["book_sha256"] = book_sha256
             # genre_tags / engine_targets 是 per-run 的路由结果，不能写进共享
             # capabilities.json；保持为空数组，渲染阶段按本次 engines 过滤。
@@ -495,6 +521,21 @@ class Pipeline:
             for cap in caps["capabilities"]:
                 cap["source_tier"] = tier_by_sid.get(cap.get("source_id", ""), "C")
             self._write(s4_paths[0], caps, log)
+            # 没走宿主承接时导出抽取工单：模板句卡没有知识，得让宿主来填。
+            if not host_blocks and caps.get("extractor") == "heuristic":
+                try:
+                    from .judge.capability import build_worklist as build_cap_worklist
+                    wl = build_cap_worklist(full_text, segments["segments"],
+                                            book_title,
+                                            genre_fields=genre_fields)
+                    wl_path = out_dir / "capability_worklist.json"
+                    self._write(wl_path, wl, log)
+                    log(f"    能力卡抽取工单已导出：{wl_path}"
+                        f"（{wl['item_count']} 个章节待提炼）")
+                    log("    → 宿主 Agent 承接：逐节提炼成可执行规则，回填后重跑 "
+                        "`bookleme run` 即生效")
+                except Exception as exc:
+                    log(f"    抽取工单导出失败：{type(exc).__name__}: {exc}")
             self.state.mark(run_id, "S4", s4_hash, s4_paths,
                             degraded=caps["extractor"] == "heuristic",
                             note=f"extractor={caps['extractor']} caps={len(caps['capabilities'])}")
@@ -744,6 +785,8 @@ class Pipeline:
             metrics = {
                 "schema_version": "1.0", "run_id": run_id,
                 "extractor": caps_v["extractor"],
+                "book_title": book_title,
+                "book_sha256": book_sha256,
                 "llm_calls": llm.llm_calls,
                 "model_fingerprint": (llm.model_fingerprint("capability_extract_v1")
                                       if caps_v["extractor"] == "llm" else None),
