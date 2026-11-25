@@ -12,7 +12,7 @@ from bookleme.plugins.base import GenrePlugin
 PLUGIN = GenrePlugin(
     genre_id="decision_checklist",
     display_name_zh="决策清单",
-    version="2.1.0",
+    version="2.2.0",
     router_rules={"source": "configs/router.json", "note": "权重外置，插件不硬编码"},
     capability_schema={
         # RIA++ 六字段 + 本体裁强制的 4 个规则字段（PLUGIN_SPEC §3.3）。
