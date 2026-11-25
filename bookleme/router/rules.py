@@ -47,9 +47,25 @@ def route(full_text: str, segments: list[dict], toc: list[dict], cfg: dict,
         genres, source, reason = [top1], "auto", "margin >= threshold"
     else:
         evidence = build_evidence(segments, cfg["ambiguity_sample_size"])
-        engines = list(cfg["fallback"]["engines"])
-        genres = [top1, top2]
-        source, reason = "ambiguity", cfg["fallback"]["reason"]
+        # 歧义兜底：按 top1 体裁自己的引擎表出产物，而不是无条件双出。
+        # 为什么：原兜底固定输出 knowledge_pack + behavior_skill，于是任何
+        # margin 偏小的技术文档都会硬套一个「自我对话教练」——它的触发词是
+        # 「人生设计/自我对话/迷茫」，与 RL 基础设施这类技术内容完全无关，
+        # 实测 microsoft.ai 页面就产出了错配的教练技能。
+        # 现在：top1 若本身对应单引擎（knowledge_reference → knowledge_pack），
+        # 就只出那一个；top1 对应多引擎体裁时才双出（保留双出能力）。
+        default_for_top1 = list(cfg["default_engines"].get(top1) or [])
+        if len(default_for_top1) > 1:
+            engines = default_for_top1
+        else:
+            engines = default_for_top1 or list(cfg["fallback"]["engines"])
+        # genres 仍保留 top2：它不产引擎，但参与体裁必填字段的选取
+        # （pipeline 用 genres[0] 之外的体裁补 genre_fields）。
+        genres = [top1, top2] if top2 != top1 else [top1]
+        source, reason = "ambiguity", (
+            cfg["fallback"]["reason"] +
+            f"（按 top1={top1} 的引擎表出产物，不无条件双出）"
+        )
 
     if genre_override:
         genres = [genre_override]

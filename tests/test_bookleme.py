@@ -141,7 +141,8 @@ class TestRealBookFixes(unittest.TestCase):
         for cap in caps["capabilities"]:
             quote = cap["ria"]["R_quote"]
             self.assertIn(quote, body, f"引文非逐字子串：{quote!r}")
-            self.assertLessEqual(len(quote), 24, "引文超版权预算（含从句边界窗口）")
+            # 引文预算：heuristic 每卡 28 字 + 从句边界窗口 8 = 36
+            self.assertLessEqual(len(quote), 36, "引文超版权预算（含从句边界窗口）")
         # 引文定位必须可解析
         pos = body.find(caps["capabilities"][0]["ria"]["R_quote"])
         self.assertGreaterEqual(pos, 0)
@@ -1466,6 +1467,163 @@ class TestPatch211Fixes(unittest.TestCase):
         contract = registry["knowledge_reference"].output_contract
         self.assertIn("还需要哪些数据", contract["sections"])
         self.assertIn("还需要哪些数据", contract["required_fields"])
+
+
+class TestHtmlContentQuality(unittest.TestCase):
+    """2.1.2：网页正文净化 + 内容质量硬门。
+
+    背景：真实事故——微软页面 93% 语料是 base64 噪声，16 个框架全是
+    「窗口 N（无标题回退）」，引文是 'Gift cards' 这种垃圾，但 check 判
+    「能用」。这两组测试锁住修复：抽取不产噪声 + 硬门能拦住这类产物。
+    """
+
+    def test_template_tag_is_skipped(self):
+        """<template> 里的 base64 数据不得进语料。"""
+        from bookleme.fetch import PageParser
+        html = (
+            "<html><body><main><p>Real sentence about RL infrastructure.</p>"
+            "<template data-widget-html>" + "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=" * 5 +
+            "</template>"
+            "<h2>Rocket overview</h2><p>More real content here.</p></main></body></html>"
+        )
+        p = PageParser()
+        p.feed(html)
+        text = p.result_text()
+        self.assertNotIn("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo", text,
+                         "template 里的 base64 泄漏进语料了")
+        self.assertIn("Real sentence about RL infrastructure.", text)
+
+    def test_headings_become_markdown(self):
+        """HTML 标题要转成 Markdown 标记，否则分段器退化成「窗口 N」。"""
+        from bookleme.fetch import PageParser
+        html = (
+            "<html><body><main><h2>Controlling staleness</h2>"
+            "<p>Body text about staleness in RL rollouts.</p>"
+            "<h3>Numerical precision</h3><p>More text here about precision.</p>"
+            "</main></body></html>"
+        )
+        p = PageParser()
+        p.feed(html)
+        text = p.result_text()
+        self.assertIn("## Controlling staleness", text)
+        self.assertIn("### Numerical precision", text)
+
+    def test_nav_and_footer_dropped(self):
+        """导航/页脚噪声不得进语料。"""
+        from bookleme.fetch import PageParser
+        html = (
+            "<html><body><nav>Skip to main content Microsoft 365 Azure Copilot</nav>"
+            "<main><p>The actual article body goes here.</p></main>"
+            "<footer>Sitemap Contact Microsoft Privacy Manage cookies</footer>"
+            "</body></html>"
+        )
+        p = PageParser()
+        p.feed(html)
+        text = p.result_text()
+        self.assertIn("The actual article body goes here.", text)
+        self.assertNotIn("Sitemap Contact Microsoft", text)
+        self.assertNotIn("Skip to main content", text)
+
+    def test_ui_share_controls_dropped(self):
+        """社交分享控件噪声不得进语料。"""
+        from bookleme.fetch import PageParser
+        html = (
+            "<html><body><main><p>Article body starts here.</p>"
+            "<h2>Share this article</h2><p>LinkedIn (opens in a new tab)</p>"
+            "<p>X (opens in a new tab)</p></main></body></html>"
+        )
+        p = PageParser()
+        p.feed(html)
+        text = p.result_text()
+        self.assertNotIn("Share this article", text)
+        self.assertNotIn("opens in a new tab", text)
+
+    def test_junk_quote_detected(self):
+        """噪声引文必须被识别（否则硬门形同虚设）。"""
+        from bookleme.check import _is_junk_quote
+        self.assertTrue(_is_junk_quote("ICdub25lJzsgc2Ny"))
+        self.assertTrue(_is_junk_quote("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo"))
+        self.assertTrue(_is_junk_quote("..."))
+        self.assertTrue(_is_junk_quote(""))
+        # 正常英文原文不能被误判
+        self.assertFalse(_is_junk_quote("Our largest RL runs span thousands of GPUs."))
+        self.assertFalse(_is_junk_quote("Rocket is not an abstract system."))
+
+    def test_placeholder_framework_name_detected(self):
+        """占位式框架名必须被识别。"""
+        from bookleme.check import PLACEHOLDER_FRAMEWORK_RE
+        self.assertTrue(PLACEHOLDER_FRAMEWORK_RE.match("窗口 1（无标题回退）"))
+        self.assertTrue(PLACEHOLDER_FRAMEWORK_RE.match("窗口 12"))
+        self.assertTrue(PLACEHOLDER_FRAMEWORK_RE.match("Segment 3"))
+        # 真实框架名不能被误判
+        self.assertFalse(PLACEHOLDER_FRAMEWORK_RE.match("Controlling staleness"))
+        self.assertFalse(PLACEHOLDER_FRAMEWORK_RE.match("Numerical precision"))
+
+    def test_short_title_keeps_english_words(self):
+        """标题截断不能切半个词，也不能把英文砍成一个词。"""
+        from bookleme.intake import short_title
+        out = short_title("RL Infrastructure at Microsoft AI", 12)
+        self.assertNotEqual(out, "RL")
+        self.assertTrue(out.endswith(("RL", "at", "Microsoft")), out)
+        # 中文行为不变
+        self.assertEqual(short_title("人生设计练习册", 12), "人生设计练习册")
+
+    def test_extract_html_shares_parser_with_fetch(self):
+        """本地 HTML 与 URL 抓取必须走同一套解析器（不能各写一套漂移）。"""
+        import inspect
+        from bookleme.extract import html as html_mod
+        src = inspect.getsource(html_mod)
+        self.assertIn("PageParser", src,
+                      "extract/html.py 必须复用 fetch.PageParser，否则两套规则会漂移")
+
+    def test_english_quote_not_cut_at_chinese_punctuation(self):
+        """英文正文的引文不能被中文标点切坏（曾经产出 'Figure 1 shows R'）。"""
+        from bookleme.capabilities.extract import _first_sentence_quote
+        content = ("Rocket is not an abstract system, it is actively powering the model "
+                   "progress on our aggressive frontier models. The steadiness matters.")
+        quote = _first_sentence_quote(content, 150)
+        self.assertIn("Rocket is not an abstract system", quote)
+        self.assertGreater(len(quote), 40)
+
+    def test_quote_always_verbatim_substring(self):
+        """引文必须恒为原文精确子串（find 必须命中）——逐字性是硬约束。"""
+        from bookleme.capabilities.extract import _first_sentence_quote
+        samples = [
+            "Staleness. Agentic rollouts can take hours while the learner keeps "
+            "updating the policy. Because GRPO scores each rollout.",
+            "这样一句话。第二句在这里。",
+            "Numerical consistency. Fitting a larger model requires lower-precision math.",
+            "短。",
+        ]
+        for content in samples:
+            quote = _first_sentence_quote(content, 150)
+            self.assertIn(quote, content,
+                          f"引文不是原文子串：{quote!r}")
+
+    def test_ambiguity_fallback_follows_top1_engine_table(self):
+        """歧义兜底不得无条件双出引擎。
+
+        背景：兜底曾固定输出 knowledge_pack + behavior_skill，于是 margin 偏小
+        的技术文档会硬套「自我对话教练」（触发词是人生设计/自我对话，与技术
+        内容完全无关）。现在兜底按 top1 体裁自己的引擎表出产物。
+        """
+        from bookleme.router.rules import route
+        cfg = load_router_config()
+        # 构造 margin 偏小的英文技术文档 → 走 ambiguity 分支
+        text = ("The system scales. " * 200 +
+                "Numerically accurate reinforcement learning requires scale. " * 60)
+        from bookleme.segment.headings import segment_text
+        segs = segment_text(text, [], load_run_config())["segments"]
+        result, _ = route(text, segs, [], cfg)
+        self.assertEqual(result["override_source"], "ambiguity",
+                         "该样本应走歧义兜底分支")
+        # top1 是 knowledge_reference 时，只应出 knowledge_pack
+        if result["top1"] == "knowledge_reference":
+            self.assertEqual(result["engines"], ["knowledge_pack"],
+                             f"歧义兜底不应硬套教练技能：{result['engines']}")
+        # 任何情况下都不该在 top1=knowledge_reference 时产出 behavior_skill
+        if result["top1"] == "knowledge_reference":
+            self.assertNotIn("behavior_skill", result["engines"])
 
 
 if __name__ == "__main__":

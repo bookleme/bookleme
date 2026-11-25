@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 
 SUPPORTED = {".md", ".markdown", ".txt", ".pdf", ".docx", ".epub", ".html", ".htm",
@@ -91,15 +92,48 @@ def infer_title(paths: list[str], fetched: list[dict] | None = None) -> tuple[st
 
 
 def short_title(title: str, limit: int = 12) -> str:
-    """用于产物显示名：截断时不要把括号截成半边（会变成 `书（合成评测·教练`）。"""
+    """用于产物显示名：截断时不要把括号截成半边（会变成 `书（合成评测·教练`）。
+
+    截断按「视觉宽度」而非字符数：中日韩字符算 2 宽，拉丁字符算 1 宽。
+    为什么要按宽度：原来的纯字符数上限（12）对中文合适（12 个汉字约等于
+    12 个西文字符的视觉长度），但对英文标题会砍得太狠 —— 'RL Infrastructure
+    at Microsoft AI' 被截成 'RL Infrastru'，既丢信息又难看（实测产物目录名
+    就是 'RL Infrastru·框架速查'）。
+
+    拉丁文额外按词边界收口，避免切出 'RL Infrastruc' 这种半个词。
+    """
     t = (title or "").strip()
-    if len(t) <= limit:
+    if not t:
+        return t
+    budget = limit * 2
+    if _display_width(t) <= budget:
         return t
     cut = t[:limit]
     for left, right in (("（", "）"), ("(", ")"), ("【", "】"), ("[", "]")):
         if cut.count(left) > cut.count(right):
             cut = cut[:cut.rindex(left)]
-    return cut.rstrip("·-—、,，.。：: （(") or t[:limit]
+    cut = cut.rstrip("·-—、,，.。：: （(")
+    # 拉丁文按词边界收口：不在单词中间断开。
+    # 不能简单退到最后一个空格（'RL Infrastructure at Microsoft AI' 会缩成
+    # 'RL'）；正确做法是从完整标题重新按词组装，保留宽度在预算内的最长前缀。
+    if re.search(r"[A-Za-z0-9]$", cut):
+        acc = ""
+        for word in t.split(" "):
+            cand = (acc + " " + word) if acc else word
+            if _display_width(cand) > budget:
+                break
+            acc = cand
+        if acc.strip():
+            cut = acc.rstrip("·-—、,，.。：: （(")
+    return cut.rstrip() or t[:limit]
+
+
+def _display_width(s: str) -> int:
+    """视觉宽度：CJK 全角字符算 2，其余算 1。"""
+    w = 0
+    for ch in s:
+        w += 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+    return w
 
 
 def _pdf_title(path: Path) -> str:

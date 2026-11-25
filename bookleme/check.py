@@ -23,6 +23,59 @@ FRAMEWORK_RE = re.compile(r"framework-(\d+)\.md$")
 INDEX_ROW_RE = re.compile(r"\|\s*`(references/[^`]+\.md)`\s*\|\s*$", re.M)
 STEP_RE = re.compile(r"^\s*\d+\.\s+\S", re.M)
 
+# ---- 内容质量检测（2.1.2）----
+# 为什么需要：结构完整 ≠ 内容可用。曾经有一次真实事故——网页里 93% 是 base64
+# 噪声，16 个「框架」全是「窗口 N（无标题回退）」，引文是 'Gift cards' 这种
+# 垃圾，但 check 仍判「能用，有需要留意的地方」。结构校验全过、内容全废，
+# 而用户看到的判决是「可用」。这类问题必须由硬门拦住，不能只报「可改进」。
+
+# 占位式框架名：分段器在识别不到标题时的回退命名（seg/windows.py）
+PLACEHOLDER_FRAMEWORK_RE = re.compile(
+    r"^窗口\s*\d+\s*[（(]?无标题回退[）)]?$|"
+    r"^窗口\s*\d+$|"
+    r"^Segment\s*\d+$|"
+    r"^Chunk\s*\d+$|"
+    r"^未命名|"
+    r"^无标题\s*\d*$",
+    re.I,
+)
+
+# 垃圾引文特征：长 base64 串、纯随机字母数字、十六进制块、URL 编码块
+_JUNK_QUOTE_PATTERNS = (
+    re.compile(r"[A-Za-z0-9+/]{40,}={0,2}"),          # base64
+    re.compile(r"^[A-Fa-f0-9]{40,}$"),                # 纯 hex
+    re.compile(r"(?:%[0-9A-Fa-f]{2}){20,}"),          # URL 编码
+    re.compile(r"^[\W_]+$"),                          # 纯符号
+)
+
+# 引文里「像 base64 但不够长」的短串：全大写/数字混排且无空格
+_JUNK_SHORT_RE = re.compile(r"^[A-Za-z0-9+/=]{16,}$")
+
+
+def _is_junk_quote(quote: str) -> bool:
+    """判断一段引文是否是噪声（而不是原文）。"""
+    q = (quote or "").strip()
+    if not q:
+        return True
+    for pat in _JUNK_QUOTE_PATTERNS:
+        if pat.search(q):
+            return True
+    if _JUNK_SHORT_RE.match(q):
+        # 纯字母数字且没有空格，且不是常见英文单词形态 → 判为噪声
+        return True
+    return False
+
+
+def _extract_quotes(text: str) -> list[str]:
+    """从分片里取出「原文出处」那一行的引文。"""
+    out: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("原文出处"):
+            m = re.search(r"：\s*(.+?)\s*$", line)
+            if m:
+                out.append(m.group(1).strip())
+    return out
+
 
 def _read(path: Path) -> str:
     try:
@@ -63,6 +116,9 @@ def _check_artifact(artifact: dict, run_dir: Path) -> dict:
         "index_rows": 0,
         "index_broken": [],   # 指向不存在文件的索引行
         "index_duplicate": [],  # 指向同一文件的多行（路由会失效）
+        "placeholder_titles": 0,  # 占位式框架名数量（无语义）
+        "junk_quotes": 0,         # 噪声引文数量
+        "junk_quote_samples": [], # 噪声引文样例（最多 3 条）
         "hard": [],
         "soft": [],
         "can_answer": [],
@@ -112,6 +168,15 @@ def _check_artifact(artifact: dict, run_dir: Path) -> dict:
                 break
         if title:
             result["can_answer"].append(title)
+            # 内容质量：占位式框架名说明分段器没识别到标题，框架名无语义
+            if PLACEHOLDER_FRAMEWORK_RE.match(title):
+                result["placeholder_titles"] += 1
+        # 内容质量：引文是噪声（base64 / 随机串 / 纯符号）
+        for q in _extract_quotes(text):
+            if _is_junk_quote(q):
+                result["junk_quotes"] += 1
+                if len(result["junk_quote_samples"]) < 3:
+                    result["junk_quote_samples"].append(f"{shard.name}: {q[:40]}")
 
     index_text = _read(refs / "topic-index.md")
     if index_text:
@@ -164,6 +229,47 @@ def check_run(run_id: str) -> dict:
 
     hard = [f"{a['name']}：{msg}" for a in artifacts for msg in a["hard"]]
     soft = [f"{a['name']}：{msg}" for a in artifacts for msg in a["soft"]]
+
+    # ---- 内容质量硬门（2.1.2）----
+    # 结构全过但内容是垃圾时，必须判「不可用」，否则用户拿到的判决会骗人。
+    for a in artifacts:
+        if a["frameworks"] and a["placeholder_titles"] == a["frameworks"]:
+            hard.append(f"{a['name']}：{a['placeholder_titles']}/{a['frameworks']} "
+                        f"个框架名都是「窗口 N（无标题回退）」式占位名 —— "
+                        f"分段器没识别到标题，技能无法按问题路由到对应内容")
+        elif a["placeholder_titles"]:
+            soft.append(f"{a['name']}：{a['placeholder_titles']}/{a['frameworks']} "
+                        f"个框架名是占位名（无语义），建议补标题结构")
+        if a["junk_quotes"] and a["frameworks"]:
+            ratio = a["junk_quotes"] / a["frameworks"]
+            msg = (f"{a['name']}：{a['junk_quotes']} 条引文是噪声（base64/随机串/纯符号）"
+                   f"，不是原文 —— 抽样：" + "；".join(a["junk_quote_samples"]))
+            # 半数以上引文是噪声 → 内容基本报废，判硬问题
+            if ratio >= 0.5:
+                hard.append(msg + f"（占 {ratio:.0%}，内容基本报废）")
+            else:
+                soft.append(msg)
+
+    # 覆盖度过低 → 说明大部分正文段没被编成能力卡。
+    # 注意分级：覆盖度低不一定是「内容垃圾」，也可能是分段过碎（标题密度高、
+    # 每段都很短）导致能力卡数相对段数偏少。所以只有「覆盖度极低 + 框架名
+    # 也退化」才判硬问题；单纯覆盖度中等偏低只报可改进。
+    fidelity = metrics.get("fidelity") or {}
+    cov = (fidelity.get("coverage_score") or {}).get("value")
+    if isinstance(cov, (int, float)) and cov < 0.5:
+        all_placeholder = all(
+            a["frameworks"] and a["placeholder_titles"] == a["frameworks"]
+            for a in artifacts
+        ) if artifacts else False
+        msg = (f"覆盖度 {cov:.0%}（目标 ≥85%）："
+               f"大部分正文段没能编成能力卡，技能能回答的范围远小于原文")
+        if all_placeholder:
+            hard.append(msg + "（且框架名全部退化为占位名，内容确实不可用）")
+        elif cov < 0.2:
+            hard.append(msg + "（覆盖度极低，建议先修输入净化再重跑）")
+        else:
+            soft.append(msg)
+
     if figs.get("total"):
         if figs.get("anchored", 0) < figs.get("total", 0):
             soft.append(f"图示：{figs['total'] - figs.get('anchored', 0)} 张未锚定到正文（索引里标「未锚定」）")
