@@ -33,11 +33,9 @@
   <a href="#docs">文档</a>
 </p>
 
-> **开发中（分支 `feat/2.0`，尚未发版）**：在 2.0.0 之上正在做三件事——LLM judge
-> 接入（`groundedness` / V2 / V3 从 `null` 变真值）、读图 → 能力卡（视觉模型把图示
-> 里的信息写成能力卡）、两个体裁插件内置化。**版本号仍为 2.0.0，未发布 2.1.0**；
-> 本 README 的功能描述以已发布版为准，开发进度见
-> [CHANGELOG.md 未发布段](CHANGELOG.md#未发布210-候选--分支-feat20--judge-真值--读图能力卡--插件内置化)。
+> **最新**：v2.1.1 已发布——零配置（LLM 自动识别 / 读图交给运行时智能体）、编译产物检视台
+> （`bookleme inspect`）、按状态变化设计的动效语言。功能细节见
+> [CHANGELOG.md](CHANGELOG.md) 与 [Releases](https://github.com/bookleme/bookleme/releases)。
 
 ---
 
