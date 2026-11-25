@@ -24,24 +24,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="运行 S0-S9 编译流水线")
     run.add_argument("--input", nargs="+", required=True, help="本地有权文件路径（可多个）")
-    run.add_argument("--engine", choices=["auto", "knowledge_pack", "behavior_skill", "both"], default=None)
-    run.add_argument("--genre", default=None, help="强制指定体裁插件 id")
-    run.add_argument("--no-router", action="store_true", help="关闭路由，双引擎全出")
-    run.add_argument("--install", action="store_true", help="写入技能真源（默认关闭）")
-    run.add_argument("--dry-run", action="store_true", help="不安装（默认即不安装）")
+    run.add_argument("--engine", choices=["auto", "knowledge_pack", "behavior_skill", "both"], default=None,
+                     help="产物形态；默认按体裁自动决定，一般不用指定")
+    run.add_argument("--genre", default=None,
+                     help="强制指定体裁插件 id（可用值见 `bookleme plugin list`）；默认由路由自动判定")
+    run.add_argument("--no-router", action="store_true", help="跳过体裁判定，两个引擎都出")
+    run.add_argument("--install", action="store_true", help="写入技能真源（默认关闭，只出产物不落盘）")
+    run.add_argument("--dry-run", action="store_true",
+                     help="（已废弃：默认就是不安装。保留只为兼容旧命令，会提示一声）")
     run.add_argument("--title", default=None)
     run.add_argument("--author", default="")
     run.add_argument("--isbn", default="")
     run.add_argument("--language", default="zh")
-    run.add_argument("--user-rights", choices=["owned", "licensed", "public_domain", "unknown"], default=None)
-    run.add_argument("--public", action="store_true")
-    run.add_argument("--confirm-public", default=None)
-    run.add_argument("--plugin-dir", default=None)
+    run.add_argument("--user-rights", choices=["owned", "licensed", "public_domain", "unknown"], default=None,
+                     help="仅在要公开分发时才需要声明；默认按「权利未确认」处理（私有自用、禁止公开）")
+    run.add_argument("--public", action="store_true", help="申请公开分发（需同时给 --confirm-public PUBLISH）")
+    run.add_argument("--confirm-public", default=None, help="公开分发的裸词确认：PUBLISH")
+    run.add_argument("--plugin-dir", default=None, help="额外的体裁插件目录（不存在会明确报错，不再静默忽略）")
     run.add_argument("--run-id", default=None)
 
     plugin = sub.add_parser("plugin", help="体裁插件工具")
     psub = plugin.add_subparsers(dest="plugin_cmd", required=True)
-    pv = psub.add_parser("validate", help="校验插件 16 个必填字段")
+    pv = psub.add_parser("validate", help="校验插件 18 个必填字段")
     pv.add_argument("file", help="插件 .py 绝对路径")
 
     val = sub.add_parser("validate", help="校验一个 skill 产物目录")
@@ -60,6 +64,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sch = sub.add_parser("schema", help="校验所有 JSON Schema 文件与 state.json")
     sch.add_argument("--state", action="store_true")
+
+    doc = sub.add_parser("doctor", help="自检：环境、LLM 可用性、最近一次运行（无需你配置任何东西）")
+    doc.add_argument("--run-id", default=None, help="指定要体检的 run（默认最近一次）")
+
+    ins = sub.add_parser("inspect", help="生成编译产物检视台（单文件 HTML，离线可看）")
+    ins.add_argument("run_id", nargs="?", default=None, help="run id（默认最近一次）")
+    ins.add_argument("--open", action="store_true", help="生成后直接打开")
     return parser
 
 
@@ -101,6 +112,15 @@ def _schema_check(state: bool) -> int:
             results[f.name] = "ok"
         except Exception as exc:
             results[f.name] = f"invalid: {exc}"
+    # 配置也要过 schema：配置写错时给出「哪一项不合规」，而不是跑到一半报 KeyError
+    for cfg_path, schema_name in ((DEFAULT_RUN_CONFIG, "default.run.schema.json"),
+                                  (ROUTER_CONFIG, "router.schema.json")):
+        key = f"configs/{cfg_path.name}"
+        try:
+            errors = schema_validate(load_json(cfg_path), load_json(SCHEMA_DIR / schema_name))
+            results[key] = "ok" if not errors else f"invalid: {errors[:5]}"
+        except Exception as exc:
+            results[key] = f"invalid: {exc}"
     if state and STATE_PATH.exists():
         state_obj = load_json(STATE_PATH)
         errors = schema_validate(state_obj, load_json(SCHEMA_DIR / "state.schema.json"))
@@ -110,10 +130,80 @@ def _schema_check(state: bool) -> int:
     return 0 if ok else 1
 
 
+def _doctor(run_id: str | None) -> int:
+    """自检：把「需要人判断的事」收进系统，输出结论 + 下一步，而不是让用户去配环境。"""
+    from . import llm
+    from .config import CACHE_DIR, SKILLS_ROOT
+    from .plugins import load_plugins
+
+    registry, diagnostics = load_plugins()
+    runs = []
+    if OUT_DIR.exists():
+        for d in OUT_DIR.iterdir():
+            if d.is_dir():
+                runs.append((d.stat().st_mtime, d.name))
+    runs.sort(reverse=True)
+    target = run_id or (runs[0][1] if runs else "")
+    last = {"run_id": target}
+    if target:
+        rdir = OUT_DIR / target
+        val = rdir / "validation_report.json"
+        met = rdir / "metrics.json"
+        if val.is_file():
+            v = load_json(val)
+            last["all_passed"] = v.get("all_passed")
+            last["artifacts"] = len(v.get("artifacts", []))
+        if met.is_file():
+            m = load_json(met)
+            last["figures"] = m.get("figures", {})
+            last["extractor"] = m.get("extractor")
+            last["groundedness"] = (m.get("fidelity", {}).get("groundedness", {}) or {}).get("value")
+    report = {
+        "ok": True,
+        "llm": llm.describe(),
+        "paths": {
+            "root": str(ROOT), "out": str(OUT_DIR), "cache": str(CACHE_DIR),
+            "skills_root": str(SKILLS_ROOT),
+            "skills_root_exists": SKILLS_ROOT.exists(),
+        },
+        "plugins": {
+            "available": sorted(registry),
+            "broken": [d for d in diagnostics if d.get("status") in ("rejected", "error")],
+        },
+        "runs_on_disk": len(runs),
+        "last_run": last,
+        "next": [
+            "读图（多模态）由使用本技能的智能体完成，无需配置视觉模型",
+            "编译期 judge/抽取是可选项：没有 LLM 也照常出产物，指标如实记 null",
+        ],
+    }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
     if args.command == "run":
+        # ── 开跑前把「用户能自己判断的事」拦在这里，别等流水线跑一半才报错 ──
+        if args.public and args.confirm_public != "PUBLISH":
+            print("[ERROR] 公开分发需要同时给 --public --confirm-public PUBLISH（裸词确认）。"
+                  "只想自己用就不要加 --public。", file=sys.stderr)
+            return 1
+        if args.plugin_dir and not Path(args.plugin_dir).expanduser().is_dir():
+            print(f"[ERROR] 插件目录不存在：{args.plugin_dir}", file=sys.stderr)
+            return 1
+        if args.dry_run:
+            print("[提示] --dry-run 已废弃：默认就不安装产物。加 --install 才会写入技能真源。",
+                  file=sys.stderr)
+        if args.genre:
+            from .plugins import load_plugins
+            registry, _ = load_plugins(args.plugin_dir)
+            if args.genre not in registry:
+                print(f"[ERROR] 没有这个体裁插件：{args.genre}\n"
+                      f"       可用：{', '.join(sorted(registry))}\n"
+                      f"       （不给 --genre 时由路由自动判定）", file=sys.stderr)
+                return 1
         overrides = {
             "user_rights": args.user_rights,
             "genre": args.genre,
@@ -130,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
                 install=args.install, title=args.title, author=args.author,
                 isbn=args.isbn, language=args.language, user_rights=args.user_rights,
                 public=args.public, confirm_public=args.confirm_public,
-                extra_plugin_dir=args.plugin_dir, dry_run=args.dry_run,
+                extra_plugin_dir=args.plugin_dir,
             )
         except PipelineError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
@@ -138,6 +228,29 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
+    if args.command == "doctor":
+        return _doctor(args.run_id)
+    if args.command == "inspect":
+        from .inspect import write
+        run_id = args.run_id
+        if not run_id:
+            runs = sorted((d.stat().st_mtime, d.name) for d in OUT_DIR.iterdir() if d.is_dir())
+            if not runs:
+                print("[ERROR] 还没有任何 run，先跑一次 `bookleme run`。", file=sys.stderr)
+                return 1
+            run_id = runs[-1][1]
+        try:
+            path = write(run_id)
+        except FileNotFoundError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps({"run_id": run_id, "inspect": str(path),
+                          "note": "单文件 HTML：双击即可打开，图片走相对路径（需与 build/ 同目录）"},
+                         ensure_ascii=False, indent=2))
+        if args.open:
+            import webbrowser
+            webbrowser.open(f"file://{path}")
+        return 0
     if args.command == "fetch":
         from .fetch import fetch_url
         try:

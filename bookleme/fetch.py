@@ -91,12 +91,22 @@ class PageParser(HTMLParser):
         if tag == "figcaption":
             self._in_figcaption = True
         if tag == "img":
-            img = {"src": d.get("src", ""), "alt": d.get("alt", ""), "caption": ""}
+            img = {"src": d.get("src", ""), "alt": d.get("alt", ""), "caption": "",
+                   "anchor_text": self._anchor_text()}
             if self._fig_imgs is not None:
                 self._fig_imgs.append(img)
             else:
                 img["caption"] = img.get("alt", "")
                 self.images.append(img)
+
+    def _anchor_text(self, width: int = 80) -> str:
+        """图片之前的正文片段（逐字）——用于在编译语料里定位这张图的位置。
+
+        网页图片常常只有 alt（alt 文本不在正文里，无法在语料中定位），但图片前后的
+        正文一定在语料里：截取图前一小段原文作为锚点，就能定位到语料位置。
+        """
+        text = "".join(self.parts)
+        return text[-width:].strip()
 
     def handle_endtag(self, tag):
         if tag in ("script", "style") and self._skip:
@@ -190,7 +200,8 @@ def fetch_url(url: str, *, out_dir: Path | None = None, name: str | None = None,
                 fname = f"{slug}-{kept + 1:03d}.{ext}"
                 (img_dir / fname).write_bytes(blob)
                 imgs.append({"file": f"images/{fname}", "src": src,
-                             "alt": img.get("alt", ""), "caption": img.get("caption", "")})
+                             "alt": img.get("alt", ""), "caption": img.get("caption", ""),
+                             "anchor_text": img.get("anchor_text", "")})
                 kept += 1
         record = {
             "schema_version": "2.0", "kind": "html", "file": "",

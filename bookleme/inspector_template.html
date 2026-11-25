@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>编译检视台 · BookLeme</title>
+<style>
+/* ── 动效语言（一套，全站统一）────────────────────────────────────────
+   进入 240ms / 退出 150ms（退出更快 = 更利落）/ 悬停与按压 120ms
+   只动 transform 与 opacity —— 不触发布局，不产生重排与抖动
+   缓动：进入 ease-out（快起慢收，像有质量但不拖沓）
+        退出 ease-in（更快离开）
+        按压 spring（极轻回弹，只在手指/鼠标按下的瞬间）
+   reduced-motion：所有动效降为瞬时，保留状态本身的可读性            */
+:root{
+  --dur-enter:240ms; --dur-exit:150ms; --dur-quick:120ms; --dur-count:900ms;
+  --ease-out:cubic-bezier(.22,1,.36,1);
+  --ease-in:cubic-bezier(.4,0,1,1);
+  --ease-spring:cubic-bezier(.34,1.4,.64,1);
+
+  --bg:#f6f6f7; --surface:#fff; --surface-2:#f0f0f2; --line:#e3e3e6;
+  --ink:#16161a; --ink-2:#5b5b66; --ink-3:#6c6c78;
+  --accent:#2f6df6; --accent-soft:#e8f0ff;
+  --ok:#177f4b; --ok-soft:#e6f4ec; --warn:#9a6400; --warn-soft:#fdf3e0;
+  --bad:#c0362c; --bad-soft:#fdecea;
+  --shadow-1:0 1px 2px rgba(20,20,30,.05),0 1px 1px rgba(20,20,30,.03);
+  --shadow-2:0 8px 24px rgba(20,20,30,.10),0 2px 6px rgba(20,20,30,.05);
+  --radius:14px; --radius-sm:9px;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e0e11; --surface:#17171b; --surface-2:#1e1e24; --line:#2a2a32;
+    --ink:#f2f2f5; --ink-2:#b6b6c2; --ink-3:#8f8f9c;
+    --accent:#6f9bff; --accent-soft:#1b2740;
+    --ok:#4cc38a; --ok-soft:#12291f; --warn:#e0a94a; --warn-soft:#2b2314;
+    --bad:#ff7a6e; --bad-soft:#2e1815;
+    --shadow-1:0 1px 2px rgba(0,0,0,.4); --shadow-2:0 10px 30px rgba(0,0,0,.55);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e0e11; --surface:#17171b; --surface-2:#1e1e24; --line:#2a2a32;
+  --ink:#f2f2f5; --ink-2:#b6b6c2; --ink-3:#8f8f9c;
+  --accent:#6f9bff; --accent-soft:#1b2740;
+  --ok:#4cc38a; --ok-soft:#12291f; --warn:#e0a94a; --warn-soft:#2b2314;
+  --bad:#ff7a6e; --bad-soft:#2e1815;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4); --shadow-2:0 10px 30px rgba(0,0,0,.55);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:15px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  padding-bottom:56px;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+
+/* ── 顶栏 ─────────────────────────────────────────────────────────── */
+header{
+  position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--bg) 86%,transparent);
+  backdrop-filter:saturate(180%) blur(18px);-webkit-backdrop-filter:saturate(180%) blur(18px);
+  border-bottom:1px solid var(--line);
+}
+.bar{display:flex;align-items:center;gap:14px;padding:12px 0}
+.brand{font-weight:650;letter-spacing:.2px;font-size:15px;min-width:0;flex:1 1 auto}
+.brand small{display:block;font-weight:450;color:var(--ink-3);font-size:12px;letter-spacing:.3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.verdict{
+  margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;
+  padding:5px 12px;border-radius:999px;font-size:13px;font-weight:600;
+  background:var(--ok-soft);color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 28%,transparent);
+  transition:transform var(--dur-quick) var(--ease-out),opacity var(--dur-enter) var(--ease-out);
+  animation:rise var(--dur-enter) var(--ease-out) both;
+}
+.verdict.bad{background:var(--bad-soft);color:var(--bad);border-color:color-mix(in srgb,var(--bad) 30%,transparent)}
+.verdict .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.iconbtn{
+  appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+  width:36px;height:36px;border-radius:10px;cursor:pointer;display:grid;place-items:center;
+  transition:transform var(--dur-quick) var(--ease-out),background var(--dur-quick) var(--ease-out),color var(--dur-quick) var(--ease-out);
+}
+.iconbtn:hover{background:var(--surface-2);color:var(--ink)}
+.iconbtn:active{transform:scale(.94)}
+.iconbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ── 分区导航（Tab）───────────────────────────────────────────────── */
+nav.tabs{
+  display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;
+  border-bottom:1px solid var(--line);margin-bottom:22px;
+}
+nav.tabs::-webkit-scrollbar{display:none}
+nav.tabs button{
+  appearance:none;border:0;background:transparent;color:var(--ink-2);cursor:pointer;
+  padding:10px 13px;font-size:14px;font-weight:550;white-space:nowrap;position:relative;
+  transition:color var(--dur-quick) var(--ease-out);
+}
+nav.tabs button:hover{color:var(--ink)}
+nav.tabs button[aria-selected="true"]{color:var(--ink)}
+nav.tabs button::after{
+  content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;border-radius:2px;
+  background:var(--accent);transform:scaleX(0);transform-origin:50% 50%;
+  transition:transform var(--dur-enter) var(--ease-out);
+}
+nav.tabs button[aria-selected="true"]::after{transform:scaleX(1)}
+
+/* ── 面板切换：交叉淡入 + 4px 位移（内容替换不重排）───────────────── */
+.panel{display:none}
+.panel.active{display:block;animation:swap var(--dur-enter) var(--ease-out) both}
+@keyframes swap{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ── 区块 ─────────────────────────────────────────────────────────── */
+section.block{margin:0 0 26px;opacity:0;transform:translateY(8px)}
+section.block.in{opacity:1;transform:none;transition:opacity var(--dur-enter) var(--ease-out),transform var(--dur-enter) var(--ease-out)}
+h2{font-size:15px;font-weight:650;margin:0 0 12px;display:flex;align-items:center;gap:9px;letter-spacing:.2px}
+h2 .count{font:500 12px/1 var(--mono);color:var(--ink-3);background:var(--surface-2);padding:4px 7px;border-radius:6px}
+.hint{color:var(--ink-3);font-size:13px;margin:-6px 0 12px}
+
+/* ── 卡片 ─────────────────────────────────────────────────────────── */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-1)}
+.grid{display:grid;gap:12px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.arts{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.kpi{padding:15px 16px}
+.kpi .k{font-size:12px;color:var(--ink-3);letter-spacing:.2px}
+.kpi .v{font:650 26px/1.25 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.5px;margin-top:5px}
+.kpi .n{font-size:12px;color:var(--ink-3);margin-top:3px}
+
+/* ── 图库 ─────────────────────────────────────────────────────────── */
+.figs{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+.fig{padding:0;overflow:hidden;cursor:pointer;position:relative;
+  transition:transform var(--dur-quick) var(--ease-out),box-shadow var(--dur-quick) var(--ease-out);
+  animation:rise var(--dur-enter) var(--ease-out) both;}
+.fig:hover{transform:translateY(-2px);box-shadow:var(--shadow-2)}
+.fig:active{transform:scale(.985)}
+.fig:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.thumb{aspect-ratio:4/3;background:#fff;display:grid;place-items:center;overflow:hidden;position:relative}
+.thumb::after{content:"";position:absolute;inset:0;border:1px solid var(--line);pointer-events:none}
+.thumb img{width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity var(--dur-enter) var(--ease-out)}
+.thumb img.ready{opacity:1}
+.thumb .shimmer{position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,color-mix(in srgb,var(--ink) 7%,transparent) 45%,transparent 70%);
+  background-size:220% 100%;animation:shimmer 1.5s linear infinite}
+@keyframes shimmer{from{background-position:140% 0}to{background-position:-40% 0}}
+.thumb .none{color:var(--ink-3);font-size:12px;text-align:center;padding:10px}
+.figmeta{padding:9px 11px;border-top:1px solid var(--line);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.tag{font:500 11px/1 var(--mono);padding:4px 6px;border-radius:5px;background:var(--surface-2);color:var(--ink-2)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.bad{background:var(--bad-soft);color:var(--bad)}
+.tag.fig{background:var(--accent-soft);color:var(--accent)}
+.figtitle{padding:0 11px 10px;font-size:12px;color:var(--ink-3)}
+
+/* ── 灯箱：共享元素过渡（从缩略图位置长出来）──────────────────────── */
+.lb{position:fixed;inset:0;z-index:60;display:none}
+.lb.open{display:block}
+.lb .scrim{position:absolute;inset:0;background:rgba(8,8,12,.62);opacity:0;transition:opacity var(--dur-enter) var(--ease-out)}
+.lb.in .scrim{opacity:1}
+.lb .box{position:absolute;inset:0;display:grid;place-items:center;padding:24px;pointer-events:none}
+.lb .inner{
+  pointer-events:auto;background:var(--surface);border-radius:var(--radius);border:1px solid var(--line);
+  box-shadow:var(--shadow-2);max-width:min(920px,94vw);max-height:88vh;overflow:auto;
+  opacity:0;transform:scale(.94) translateY(6px);
+  transition:opacity var(--dur-enter) var(--ease-out),transform var(--dur-enter) var(--ease-out);
+}
+.lb.in .inner{opacity:1;transform:none}
+.lb .inner img{display:block;max-width:100%;max-height:72vh;object-fit:contain;background:var(--surface-2)}
+.lb .close{position:absolute;top:16px;right:16px}
+.lb .info{padding:14px 16px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* ── 表格 ─────────────────────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--ink-3);font-weight:550;font-size:12px;letter-spacing:.2px}
+tbody tr{transition:background var(--dur-quick) var(--ease-out)}
+tbody tr:hover{background:var(--surface-2)}
+td.num{font:500 13px/1.4 var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pass{color:var(--ok);font-weight:600}
+.fail{color:var(--bad);font-weight:600}
+.na{color:var(--ink-3)}
+.note{color:var(--ink-3);font-size:12.5px}
+
+/* ── 能力卡 ───────────────────────────────────────────────────────── */
+.cardlist{display:grid;gap:10px}
+.cap{padding:14px 16px;transition:transform var(--dur-quick) var(--ease-out),box-shadow var(--dur-quick) var(--ease-out)}
+.cap:hover{transform:translateY(-1px);box-shadow:var(--shadow-2)}
+.cap h3{margin:0 0 6px;font-size:14.5px;font-weight:650}
+.cap .row{display:flex;gap:8px;align-items:baseline;margin-top:7px;font-size:13px}
+.cap .k{color:var(--ink-3);min-width:76px;flex:none;font-size:12px}
+.cap .v{color:var(--ink-2)}
+.cap ul{margin:4px 0 0;padding-left:18px;color:var(--ink-2);font-size:13px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.chip{font:500 11.5px/1 var(--mono);padding:5px 8px;border-radius:6px;background:var(--surface-2);color:var(--ink-2);
+  transition:background var(--dur-quick) var(--ease-out),color var(--dur-quick) var(--ease-out)}
+.chip:hover{background:var(--accent-soft);color:var(--accent)}
+
+/* ── 工具条 ───────────────────────────────────────────────────────── */
+.toolbar{display:flex;gap:8px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+input[type=search]{
+  flex:1;min-width:160px;appearance:none;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink);border-radius:10px;padding:9px 12px;font-size:14px;
+  transition:border-color var(--dur-quick) var(--ease-out),box-shadow var(--dur-quick) var(--ease-out);
+}
+input[type=search]:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+select{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;padding:9px 11px;font-size:13px}
+.copy{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:9px;
+  padding:7px 11px;font-size:12px;cursor:pointer;font-family:var(--mono);
+  transition:transform var(--dur-quick) var(--ease-spring),background var(--dur-quick) var(--ease-out),color var(--dur-quick) var(--ease-out)}
+.copy:hover{background:var(--surface-2);color:var(--ink)}
+.copy:active{transform:scale(.96)}
+.copy.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.empty{padding:36px 16px;text-align:center;color:var(--ink-3);font-size:13.5px}
+.empty b{display:block;color:var(--ink-2);font-size:14px;margin-bottom:4px}
+
+/* ── 响应式：手机 / 窄窗 / 宽屏 ───────────────────────────────────── */
+@media (max-width:640px){
+  .wrap{padding:0 14px}
+  .figs{grid-template-columns:repeat(2,1fr)}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .kpi .v{font-size:22px}
+  /* 长书名会把页头撑宽 → 主题按钮被顶出视口点不到。标题改省略号，不换行。 */
+  .brand{white-space:normal;min-width:0;overflow:hidden}
+  .brand small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  .verdict{white-space:nowrap;font-size:12px;padding:4px 9px;gap:5px}
+  .cap .k{min-width:0}
+  .cap .row{flex-direction:column;gap:2px}
+  th.hide-sm,td.hide-sm{display:none}
+}
+@media (min-width:1100px){
+  .cols{display:grid;grid-template-columns:1fr 300px;gap:22px;align-items:start}
+}
+
+/* ── 减少动态效果：状态照常可读，只是不再动 ───────────────────────── */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;scroll-behavior:auto !important}
+  section.block{opacity:1;transform:none}
+  .thumb .shimmer{animation:none;background:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <div class="brand">编译检视台<small id="runmeta"></small></div>
+    <div id="verdict"></div>
+    <button class="iconbtn" id="theme" aria-label="切换深浅色" title="切换深浅色">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap">
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+  <div id="panels"></div>
+</main>
+
+<div class="lb" id="lb" role="dialog" aria-modal="true" aria-label="图示查看">
+  <div class="scrim" data-close></div>
+  <div class="box"><div class="inner" id="lbInner"></div></div>
+  <button class="iconbtn lb .close" id="lbClose" aria-label="关闭">✕</button>
+</div>
+
+<script>
+window.__DATA__ = /*__DATA__*/null/*__DATA__*/;
+const D = window.__DATA__ || {};
+const $ = (s, r) => (r || document).querySelector(s);
+const el = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+/* 表头要用 DOM 构造：把 '<tr>…' 当文本塞进 createElement 不会解析成标签，
+   页面会把表头源码原样打印出来（实测踩过）。 */
+const thead = (cols) => { const th = el('thead'), tr = el('tr'); cols.forEach(c => tr.append(el('th', c[1] || null, c[0]))); th.append(tr); return th; };
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ── 数值跳动：解释「这个数是怎么来的」，而不是装饰 ─────────────── */
+function countUp(node, target, fmt){
+  if (target == null || isNaN(target)) { node.textContent = '—'; return; }
+  if (reduceMotion) { node.textContent = fmt(target); return; }
+  const dur = 900, t0 = performance.now();
+  const from = 0;
+  function step(t){
+    const k = Math.min(1, (t - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 3);
+    node.textContent = fmt(from + (target - from) * e);
+    if (k < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+const fmtNum = v => (typeof v === 'number' ? (Math.abs(v) < 1 && v !== 0 ? v.toFixed(3) : String(Math.round(v * 1000) / 1000)) : String(v));
+const fmtPct = v => (typeof v === 'number' ? (v * 100).toFixed(1) + '%' : '—');
+
+/* ── 主题 ─────────────────────────────────────────────────────────── */
+const root = document.documentElement;
+const saved = localStorage.getItem('bookleme-theme') || (new URLSearchParams(location.search).get('theme')) || '';
+if (saved) root.setAttribute('data-theme', saved);
+$('#theme').addEventListener('click', () => {
+  const cur = root.getAttribute('data-theme');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  root.setAttribute('data-theme', next);
+  localStorage.setItem('bookleme-theme', next);
+});
+
+/* ── 顶部结论 ─────────────────────────────────────────────────────── */
+(function head(){
+  const v = el('div', 'verdict' + (D.all_passed === true ? '' : ' bad'));
+  let text;
+  if (D.complete === false) text = '未跑完 · 结果不完整';
+  else if (D.all_passed === true) text = '门禁全过 · 可安装';
+  else if (D.all_passed === false) text = '门禁未过 · 不可安装';
+  else text = '未跑完 · 结果不完整';
+  v.append(el('span', 'dot'), document.createTextNode(text));
+  $('#verdict').append(v);
+  $('#runmeta').textContent = (D.title || '') + (D.author ? ' · ' + D.author : '') + ' · run ' + D.run_id;
+})();
+
+/* ── 分区 ─────────────────────────────────────────────────────────── */
+const TABS = [
+  { id: 'overview', label: '概览' },
+  { id: 'figures', label: '图示' },
+  { id: 'cards', label: '能力卡' },
+  { id: 'fidelity', label: '忠实度' },
+  { id: 'gates', label: '门禁' },
+  { id: 'stages', label: '阶段' },
+  { id: 'sources', label: '来源' },
+];
+const panels = {};
+const tabsEl = $('#tabs'), panelsEl = $('#panels');
+TABS.forEach((t, i) => {
+  const b = el('button', null, t.label);
+  b.setAttribute('role', 'tab');
+  b.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+  b.addEventListener('click', () => show(t.id));
+  tabsEl.append(b);
+  const p = el('div', 'panel' + (i === 0 ? ' active' : ''));
+  p.id = 'p-' + t.id;
+  panels[t.id] = p;
+  panelsEl.append(p);
+});
+function show(id, push){
+  Object.entries(panels).forEach(([k, p]) => p.classList.toggle('active', k === id));
+  [...tabsEl.children].forEach(b => b.setAttribute('aria-selected', b.textContent === TABS.find(t => t.id === id).label ? 'true' : 'false'));
+  if (push && location.hash.slice(1) !== id) history.replaceState(null, '', '#' + id);
+  window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+addEventListener('hashchange', () => {
+  const id = location.hash.slice(1);
+  if (panels[id]) show(id, false);
+});
+const initial = location.hash.slice(1);
+if (panels[initial]) show(initial, false);
+
+/* ── 概览 ─────────────────────────────────────────────────────────── */
+(function overview(){
+  const p = panels.overview;
+  const fs = D.figures_summary || {};
+  const j = D.judge || {};
+  const gateVal = k => { const g = (D.gates || []).find(x => x.name === k); return g && g.value !== null && g.value !== undefined ? g.value : null; };
+  const metricVal = k => { const m = (D.metrics || []).find(x => x.key === k); return m ? m.value : null; };
+  const kpis = [
+    { k: '能力卡', v: (D.cards || []).length, n: '已逐字校验的原子能力' },
+    { k: '图示', v: fs.total ?? null, n: (fs.with_images || 0) + ' 张带位图 · ' + (fs.caption_only || 0) + ' 张仅图注' },
+    // groundedness 用指标表里的**比率**（不是 judge 的卡数）——卡数当比率会显示成 2800%
+    { k: 'groundedness', v: metricVal('groundedness'), n: j.enabled ? (j.judged + ' 张卡经 judge 判定') : '未接入 judge（如实 null）', pct: true },
+    { k: '引文比', v: gateVal('total_quote_ratio'), n: '上限 3%（版权硬门）', pct: true },
+  ];
+  const g = el('div', 'grid kpis');
+  kpis.forEach(k => {
+    const c = el('div', 'card kpi');
+    c.append(el('div', 'k', k.k));
+    const v = el('div', 'v', '—');
+    c.append(v);
+    c.append(el('div', 'n', k.n));
+    g.append(c);
+    requestAnimationFrame(() => countUp(v, k.v, x => k.pct ? fmtPct(x) : fmtNum(x)));
+  });
+  p.append(g);
+
+  p.append(el('h2', null, '这次编译得到了什么'));
+  const arts = el('div', 'grid arts');
+  (D.artifacts || []).forEach(a => {
+    const c = el('div', 'card kpi');
+    c.append(el('div', 'k', a.engine === 'knowledge_pack' ? '知识包' : '行为技能'));
+    const t = el('div', 'v', a.file_count); t.style.fontSize = '22px';
+    c.append(t);
+    c.append(el('div', 'n', (a.genre_id || '') + ' · ' + (a.figure_assets || 0) + ' 张图资产'));
+    const path = el('div', 'note'); path.style.marginTop = '8px';
+    path.textContent = a.skill_dir;
+    const row = el('div'); row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px';
+    const btn = el('button', 'copy', '复制路径');
+    btn.addEventListener('click', () => copy(btn, a.skill_dir));
+    row.append(btn);
+    c.append(path, row);
+    arts.append(c);
+  });
+  p.append(arts);
+
+  const d = D.distribution || {};
+  const sec = el('section', 'block');
+  sec.append(el('h2', null, '分发与版权'));
+  const tbl = el('table');
+  tbl.innerHTML = '<tbody>' +
+    '<tr><th>分发决策</th><td class="num">' + esc(d.decision || '—') + '</td></tr>' +
+    '<tr><th>原因</th><td>' + esc(d.reason || '—') + '</td></tr>' +
+    '<tr><th>使用权利</th><td class="num">' + esc(D.user_rights || '—') + '</td></tr>' +
+    '<tr><th>原图资产</th><td class="num">' + (d.figures_embedded || 0) + ' 张（含原图时非自有/公版禁止公开）</td></tr>' +
+    '</tbody>';
+  sec.append(tbl);
+  p.append(sec);
+})();
+
+/* ── 图示 ─────────────────────────────────────────────────────────── */
+(function figures(){
+  const p = panels.figures;
+  const all = D.figures || [];
+  p.append(el('h2', null, '图示'));
+  p.append(el('p', 'hint', '点开看大图。锚定＝已在原文中定位到该图位置；「仅上下文锚定」＝按图前文定位。'));
+  const bar = el('div', 'toolbar');
+  const q = el('input'); q.type = 'search'; q.placeholder = '按 ID / 页码 / 源筛选';
+  const kind = el('select');
+  [['all', '全部'], ['figure', '图'], ['table', '表']].forEach(([v, t]) => {
+    const o = el('option', null, t); o.value = v; kind.append(o);
+  });
+  const anch = el('select');
+  [['all', '全部'], ['anchored', '已锚定'], ['unanchored', '未锚定']].forEach(([v, t]) => {
+    const o = el('option', null, t); o.value = v; anch.append(o);
+  });
+  bar.append(q, kind, anch);
+  p.append(bar);
+  const grid = el('div', 'grid figs');
+  p.append(grid);
+
+  function render(){
+    grid.textContent = '';
+    const term = q.value.trim().toLowerCase();
+    const list = all.filter(f => {
+      if (kind.value !== 'all' && f.kind !== kind.value) return false;
+      if (anch.value === 'anchored' && !f.anchored) return false;
+      if (anch.value === 'unanchored' && f.anchored) return false;
+      if (!term) return true;
+      return (f.id + ' ' + (f.page || '') + ' ' + (f.source_id || '') + ' ' + f.anchor_kind).toLowerCase().includes(term);
+    });
+    if (!list.length) {
+      const e = el('div', 'empty'); e.append(el('b', null, '没有匹配的图'), document.createTextNode('换个筛选条件试试。'));
+      grid.append(e); return;
+    }
+    list.forEach((f, i) => {
+      const c = el('div', 'card fig');
+      c.tabIndex = 0; c.setAttribute('role', 'button');
+      c.style.animationDelay = Math.min(i * 28, 320) + 'ms';
+      const th = el('div', 'thumb');
+      const src = (f.images && Object.values(f.images).find(Boolean)) || '';
+      if (src) {
+        const sh = el('div', 'shimmer');
+        const im = el('img'); im.loading = 'lazy'; im.alt = f.id + ' 图示';
+        im.addEventListener('load', () => { im.classList.add('ready'); sh.remove(); });
+        im.addEventListener('error', () => { sh.remove(); const n = el('div', 'none', '图片载入失败\n（图片走相对路径，需与 build/ 同目录）'); th.append(n); });
+        im.src = src; th.append(sh, im);
+      } else {
+        th.append(el('div', 'none', '仅图注\n无可提取位图'));
+      }
+      const meta = el('div', 'figmeta');
+      meta.append(el('span', 'tag fig', f.id));
+      if (f.page) meta.append(el('span', 'tag', 'p.' + f.page));
+      meta.append(el('span', 'tag ' + (f.anchored ? 'ok' : 'warn'), f.anchored ? (f.anchor_kind === 'caption' ? '图注锚定' : '上下文锚定') : '未锚定'));
+      c.append(th, meta);
+      if (f.linked_caps && f.linked_caps.length) c.append(el('div', 'figtitle', '关联卡 ' + f.linked_caps.join('、')));
+      const open = () => lightbox(f);
+      c.addEventListener('click', open);
+      c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+      grid.append(c);
+    });
+  }
+  q.addEventListener('input', render);
+  kind.addEventListener('change', render);
+  anch.addEventListener('change', render);
+  render();
+})();
+
+/* ── 灯箱：共享元素过渡 ───────────────────────────────────────────── */
+const lb = $('#lb'), lbInner = $('#lbInner');
+let lbOpen = false;
+function lightbox(f){
+  lbInner.textContent = '';
+  const src = (f.images && Object.values(f.images).find(Boolean)) || '';
+  if (src) { const im = el('img'); im.alt = f.id; im.src = src; lbInner.append(im); }
+  const info = el('div', 'info');
+  info.append(el('span', 'tag fig', f.id));
+  if (f.page) info.append(el('span', 'tag', '原文 p.' + f.page));
+  info.append(el('span', 'tag ' + (f.anchored ? 'ok' : 'warn'), f.anchored ? '已锚定' : '未锚定'));
+  if (f.linked_caps && f.linked_caps.length) info.append(el('span', 'tag', '关联 ' + f.linked_caps.join('、')));
+  info.append(el('span', 'note', '图注原文不复制进产物（版权纪律），逐字图注见 cache/…/figures.json'));
+  lbInner.append(info);
+  lb.classList.add('open');
+  requestAnimationFrame(() => lb.classList.add('in'));
+  lbOpen = true;
+  $('#lbClose').focus();
+}
+function closeLb(){
+  if (!lbOpen) return;
+  lb.classList.remove('in');
+  lbOpen = false;
+  setTimeout(() => lb.classList.remove('open'), reduceMotion ? 0 : 150);
+}
+$('#lbClose').addEventListener('click', closeLb);
+lb.addEventListener('click', e => { if (e.target.hasAttribute('data-close')) closeLb(); });
+addEventListener('keydown', e => { if (e.key === 'Escape') closeLb(); });
+
+/* ── 能力卡 ───────────────────────────────────────────────────────── */
+(function cards(){
+  const p = panels.cards;
+  p.append(el('h2', null, '能力卡'));
+  p.append(el('p', 'hint', '每张卡都带一条逐字可溯的引文与出处段。卡片上的等级是**抽取方式的可信度**（S=确定性抽取 / B=模型抽取或读图解读 / C=启发式兜底），与来源等级是两回事。'));
+  const bar = el('div', 'toolbar');
+  const q = el('input'); q.type = 'search'; q.placeholder = '搜标题 / 触发语 / 规则';
+  const tier = el('select');
+  [['all', '全部'], ['S', 'S 确定性抽取'], ['B', 'B 模型抽取/解读'], ['C', 'C 启发式抽取']]
+    .forEach(([v, t]) => { const o = el('option', null, t); o.value = v; tier.append(o); });
+  bar.append(q, tier); p.append(bar);
+  const list = el('div', 'cardlist'); p.append(list);
+  function render(){
+    list.textContent = '';
+    const term = q.value.trim().toLowerCase();
+    const arr = (D.cards || []).filter(c => {
+      if (tier.value !== 'all' && c.tier !== tier.value) return false;
+      if (!term) return true;
+      return (c.title + ' ' + c.trigger + ' ' + c.rephrase).toLowerCase().includes(term);
+    });
+    if (!arr.length) { const e = el('div', 'empty'); e.append(el('b', null, '没有匹配的卡'), document.createTextNode('换个关键词试试。')); list.append(e); return; }
+    arr.forEach((c, i) => {
+      const card = el('div', 'card cap');
+      card.style.animation = 'rise var(--dur-enter) var(--ease-out) both';
+      card.style.animationDelay = Math.min(i * 22, 300) + 'ms';
+      card.append(el('h3', null, c.title || c.id));
+      const chips = el('div', 'chips');
+      chips.append(el('span', 'tag', c.id));
+      chips.append(el('span', 'tag ' + (c.tier === 'S' ? 'ok' : c.tier === 'C' ? 'warn' : ''), '抽取等级 ' + (c.tier || '?')));
+      if (c.origin === 'figure') chips.append(el('span', 'tag fig', '读图生成'));
+      chips.append(el('span', 'tag', c.segment || ''));
+      card.append(chips);
+      [['触发', c.trigger], ['规则', c.rephrase], ['边界', c.not_applicable]].forEach(([k, v]) => {
+        if (!v) return;
+        const r = el('div', 'row'); r.append(el('span', 'k', k), el('span', 'v', v)); card.append(r);
+      });
+      if (c.steps && c.steps.length) {
+        const r = el('div', 'row'); r.append(el('span', 'k', '步骤'));
+        const ul = el('ul'); c.steps.forEach(s => ul.append(el('li', null, s))); r.append(ul); card.append(r);
+      }
+      const gf = c.genre_fields || {};
+      const keys = Object.keys(gf);
+      if (keys.length) {
+        const r = el('div', 'row'); r.append(el('span', 'k', '体裁字段'));
+        const ul = el('ul'); keys.forEach(k => ul.append(el('li', null, k + '：' + gf[k]))); r.append(ul); card.append(r);
+      }
+      if (c.figure_refs && c.figure_refs.length) {
+        const chips2 = el('div', 'chips');
+        c.figure_refs.forEach(f => chips2.append(el('span', 'chip', f)));
+        card.append(chips2);
+      }
+      list.append(card);
+    });
+  }
+  q.addEventListener('input', render); tier.addEventListener('change', render); render();
+})();
+
+/* ── 忠实度 ───────────────────────────────────────────────────────── */
+(function fidelity(){
+  const p = panels.fidelity;
+  p.append(el('h2', null, '忠实度指标'));
+  p.append(el('p', 'hint', 'measured＝确定性可复现；heuristic＝依赖模型/人工判断（值可能为 null，且如实标注）。'));
+  const t = el('table');
+  const tb = el('tbody');
+  (D.metrics || []).forEach(m => {
+    const tr = el('tr');
+    const isPct = ['groundedness', 'citation_resolution_rate', 'verbatim_violation_rate',
+      'unsupported_claim_rate', 'coverage_score', 'negative_refusal_rate', 'total_quote_ratio'].includes(m.key);
+    const val = (m.value === null || m.value === undefined)
+      ? '<span class="na">未判定</span>'
+      : '<span class="' + (isPct ? '' : 'num') + '">' + (isPct ? fmtPct(m.value) : fmtNum(m.value)) + '</span>';
+    tr.innerHTML = '<td class="num">' + esc(m.key) + '</td><td>' + val + '</td>' +
+      '<td class="hide-sm"><span class="tag">' + esc(m.type || '') + '</span></td>' +
+      '<td class="hide-sm num">' + (m.target === null || m.target === undefined ? '—' : (isPct ? fmtPct(m.target) : fmtNum(m.target))) + '</td>' +
+      '<td class="note">' + esc(m.note || '') + '</td>';
+    tb.append(tr);
+  });
+  t.append(thead([['指标'],['值'],['类型','hide-sm'],['目标','hide-sm'],['说明']]), tb);
+  const sec = el('section', 'block'); sec.append(t); p.append(sec);
+
+  const j = D.judge || {};
+  if (j.enabled) {
+    const s = el('section', 'block');
+    s.append(el('h2', null, 'LLM judge'));
+    const tb2 = el('tbody');
+    const rows = [
+      ['已判定卡数', j.judged], ['判定为被支持', j.grounded], ['未判定（不计为不通过）', j.grounded_unknown],
+      ['V2 预测力通过', j.v2_pass], ['V3 独特性通过', j.v3_pass],
+      ['常识短语命中（V3 前置）', j.denylist_flagged], ['调用失败', j.failed_calls],
+    ];
+    rows.forEach(([k, v]) => { const tr = el('tr'); tr.innerHTML = '<td>' + esc(k) + '</td><td class="num">' + (v ?? '—') + '</td>'; tb2.append(tr); });
+    const meta = el('tr'); meta.innerHTML = '<td>模型指纹</td><td class="num">' + esc(j.model_fingerprint || '—') + '</td>';
+    tb2.append(meta);
+    const tbl = el('table'); tbl.append(tb2);
+    s.append(tbl);
+    p.append(s);
+  }
+
+  const asm = D.assumptions || {};
+  const keys = Object.keys(asm);
+  if (keys.length) {
+    const s = el('section', 'block');
+    s.append(el('h2', null, '未验证假设'));
+    s.append(el('p', 'hint', '这些是上游计划/文档里的说法，**本项目尚未验证**；不得当成本项目结论引用。'));
+    const d = el('details');
+    d.append(el('summary', null, '展开查看 ' + keys.length + ' 条（默认收起：此刻用不上就别占版面）'));
+    const tb3 = el('tbody');
+    keys.forEach(k => {
+      const tr = el('tr');
+      tr.innerHTML = '<td class="num">' + esc(k) + '</td><td>' + esc(asm[k]) + '</td>';
+      tb3.append(tr);
+    });
+    const t3 = el('table'); t3.append(tb3);
+    d.append(t3);
+    s.append(d);
+    p.append(s);
+  }
+})();
+
+/* ── 门禁 ─────────────────────────────────────────────────────────── */
+(function gates(){
+  const p = panels.gates;
+  p.append(el('h2', null, '门禁'));
+  p.append(el('p', 'hint', '任一失败 → 不安装、不发布。值与上限都来自真实计算，不是拍脑袋。'));
+  const t = el('table'); const tb = el('tbody');
+  (D.gates || []).forEach(g => {
+    const tr = el('tr');
+    const okc = g.passed ? 'pass' : 'fail';
+    tr.innerHTML = '<td class="hide-sm num">' + esc(g.engine) + '</td>' +
+      '<td class="num">' + esc(g.name) + '</td>' +
+      '<td class="' + okc + '">' + (g.passed ? '通过' : '未过') + '</td>' +
+      '<td class="num hide-sm">' + esc(typeof g.value === 'object' ? JSON.stringify(g.value) : (g.value ?? '—')) + '</td>' +
+      '<td class="num hide-sm">' + esc(g.ceiling ?? '—') + '</td>';
+    tb.append(tr);
+  });
+  t.append(thead([['引擎','hide-sm'],['检查'],['结果'],['实测值','hide-sm'],['上限','hide-sm']]), tb);
+  p.append(t);
+})();
+
+/* ── 阶段 ─────────────────────────────────────────────────────────── */
+(function stages(){
+  const p = panels.stages;
+  const arr = D.stages || [];
+  if (!arr.length) {
+    const e = el('div', 'empty'); e.append(el('b', null, '没有阶段记录'), document.createTextNode('这次 run 可能还没开始或状态文件缺失。'));
+    p.append(e); return;
+  }
+  p.append(el('h2', null, '阶段'));
+  p.append(el('p', 'hint', 'S0→S9 共 10 段；「降级」表示该段有源未能完整抽取，已如实记录。'));
+  const t = el('table'); const tb = el('tbody');
+  const LABEL = {S0:'取源',S1:'抽取',S2:'分段',S3:'判定体裁',S4:'抽能力卡',S5:'忠实度',S6:'渲染',S7:'验收',S8:'安装',S9:'指标'};
+  arr.forEach(s => {
+    const tr = el('tr');
+    const st = s.status || '';
+    const cls = st === 'completed' ? 'pass' : (st === 'skipped' ? 'na' : 'fail');
+    const label = st === 'completed' ? '完成' : (st === 'skipped' ? '跳过' : (st || '未跑'));
+    tr.innerHTML = '<td class="num">' + esc(s.stage) + '</td><td>' + esc(LABEL[s.stage] || '') + '</td>' +
+      '<td class="' + cls + '">' + esc(label) + '</td>' +
+      '<td class="note">' + esc(s.note || '') + (s.degraded ? '（有降级）' : '') + '</td>';
+    tb.append(tr);
+  });
+  t.append(thead([['段'],['做什么'],['状态'],['备注']]), tb);
+  p.append(t);
+})();
+
+/* ── 来源 ─────────────────────────────────────────────────────────── */
+(function sources(){
+  const p = panels.sources;
+  p.append(el('h2', null, '来源'));
+  const t = el('table'); const tb = el('tbody');
+  (D.sources || []).forEach(s => {
+    const tr = el('tr');
+    tr.innerHTML = '<td class="num">' + esc(s.source_id) + '</td><td class="num">' + esc(s.origin) + '</td>' +
+      '<td class="num">' + esc(s.kind) + '</td><td class="num"><span class="tag">' + esc(s.tier) + '</span></td>' +
+      '<td class="note">' + esc(s.url || '（本地文件）') + '</td>';
+    tb.append(tr);
+  });
+  t.append(thead([['源'],['来源地'],['格式'],['来源等级'],['地址']]), tb);
+  p.append(t);
+  p.append(el('p', 'hint', '来源等级 S=本地有权正文，A/B/C=公开来源（公开来源不得标 S）；卡片上的 tier 是另一回事——那是「可信度」。'));
+})();
+
+/* ── 复制路径 ─────────────────────────────────────────────────────── */
+function copy(btn, text){
+  const done = () => { btn.textContent = '已复制'; btn.classList.add('done');
+    setTimeout(() => { btn.textContent = '复制路径'; btn.classList.remove('done'); }, 1600); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
+  else fallback();
+  function fallback(){
+    const ta = el('textarea'); ta.value = text; document.body.append(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { btn.textContent = '复制失败'; }
+    ta.remove();
+  }
+}
+
+/* ── 区块入场：只播一次，滚到才动（不打断正在做的事）──────────────── */
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+}, { threshold: .06 });
+document.querySelectorAll('section.block').forEach(s => io.observe(s));
+</script>
+</body>
+</html>

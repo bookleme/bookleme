@@ -16,6 +16,11 @@ def shingle_jaccard(a: str, b: str, n: int = 13) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
+def shingle_set(text: str, n: int = 13) -> set[str]:
+    """公开的 shingle 集合接口（V1 跨域佐证计数等确定性统计用）。"""
+    return _shingles(text, n)
+
+
 def max_contiguous_copy(source: str, artifact: str) -> int:
     """Longest artifact substring that also occurs in the source (bounded scan)."""
     if not source or not artifact:

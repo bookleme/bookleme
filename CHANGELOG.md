@@ -1,5 +1,144 @@
 # Changelog
 
+## 2.1.0 (2026-11-25) — 用户体验收口：零配置、可检视、动效规范化
+
+一句话：**复杂留给我们系统，不留给用户**。这一版把「要用户理解的事」全部收回系统，
+把「看不清结果」变成一个能打开的页面，并按状态变化重做了整套动效语言。
+
+### 亮点
+
+- **大模型配置不再需要用户懂**（`bookleme/llm/__init__.py`）
+  - 自动识别常见厂商的**标准环境变量**（`OPENAI_API_KEY` / `MOONSHOT_API_KEY` /
+    `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `ARK_API_KEY` / `ZHIPU_API_KEY` /
+    `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY` / `GROQ_API_KEY` / `XAI_API_KEY`），
+    端点用各厂默认的 OpenAI 兼容地址；也读 `~/.bookleme/config.json` 的 `llm` 段
+    （可写 `api_key_env` 指向别的环境变量，密钥不必落盘）；`BOOKLEME_LLM_*` 仍是最高优先。
+  - 编译期调模型**始终是可选增强**：没有配置照常出产物，`groundedness`/`V2`/`V3`
+    如实写 `null` 并注明「未接入，不伪造」。
+- **读图交给运行时智能体**（产物侧）：技能包里新增「读图任务」区块 + SKILL.md 工作流里的
+  读图步骤——由**使用该技能的智能体**（多数模型原生支持多模态）亲自看图作答，
+  编译期不再要求配视觉模型。这才符合「这套东西本来就是给大模型用的」。
+- **`bookleme doctor`（新子命令）**：一次体检说清环境、识别到的 LLM、可用体裁、
+  最近一次 run 的结论与下一步；**不需要用户先配置什么**。
+- **`bookleme inspect <run_id>`（新子命令）**：编译产物检视台——单文件、零依赖、离线可开的
+  HTML，七个分区（概览 / 图示 / 能力卡 / 忠实度 / 门禁 / 阶段 / 来源）。
+  - 动效按**状态变化**设计而非按部件：进入 240ms / 退出 150ms / 悬停与按压 120ms；
+    缓动分进入（ease-out）、退出（ease-in）、按压（spring）；只动 transform 与 opacity，
+    不产生重排与抖动；`prefers-reduced-motion` 下全部降为瞬时。
+  - 数值跳动用 rAF 缓动并配等宽数字（tabular-nums）防抖动；面板切换用交叉淡入 + 4px 位移；
+    灯箱用共享元素过渡（从缩略图位置长出来）。
+  - 深浅色走 CSS 变量 + `prefers-color-scheme` + 手动切换；390px 手机视口到宽屏都成立。
+  - 只读既有 JSON 产物，不重算、不改口径；图注原文不进页面（版权纪律），只给图与定位信息。
+- **权利默认改为「未确认」**（`configs/default.run.json`、`provenance.py`）
+  - 此前默认 `user_rights: "owned"` —— 等于**系统替用户默认认领所有权**。
+  - 现在默认 `unknown`：**私有自用照常**（安装由显式 `--install` 发起），
+    但**禁止公开分发**；要公开需显式声明权利并加 `--public --confirm-public PUBLISH`。
+  - 「分发决策」只管公开与否，不再连带阻断私有安装——这两件事本来就不该混为一谈。
+
+### Fixed
+
+- **`bookleme eval` 必崩**：`inspect` 分支里的局部 `from .config import OUT_DIR`
+  让整个 `main()` 把它当局部变量 → 任何 `eval` 调用都 `UnboundLocalError`。已修。
+- **检视台表头被当源码打印**：用 `createElement('thead', null, '<tr>…')` 塞 HTML 字符串
+  不会解析成标签，页面把表头源码原样显示。改为 DOM 构造（实测截图才发现）。
+- **检视台首屏数字错到 2800%**：`groundedness` 取了 judge 的**卡数**却按百分比格式化；
+  改取指标表里的比率。
+- **手机端横向溢出 235px**：长书名把页头撑宽，主题按钮被顶出视口点不到；窄屏改省略号 + nowrap。
+- **`--genre` 填错静默回落**：现在开跑前就报错并列出可用体裁。
+- **`--plugin-dir` 指向不存在目录静默忽略**：现在明确报错。
+- **`--public` 缺裸词确认要等流水线跑完才报错**：校验前移到 CLI 入口。
+- **S7 失败信息是截断的 JSON**：改为「哪道门 / 实测值 / 上限 / 怎么改」的可读清单 + 报告路径。
+- **终端 17/38 行是逐文件 `wrote` 路径**：中间产物改为只进日志文件，终端只留阶段级信息，
+  完整绝对路径仍在末尾汇总 JSON 里。
+- **「预计完成 30-45 分钟」的假承诺**：实测多数批次几秒跑完，删掉，改为结束时给真实耗时。
+- **`--dry-run` 是哑参数**（默认本就不安装）：保留兼容但明确标注废弃并提示一次。
+- **同名能力卡在 topic-index 里无法区分**：同名自动加图 ID / 序号后缀。
+- **死文件**：`cheatsheet.md` / `index-guide.md` 生成了却没人指路 → 挂进 topic-index。
+- **检视台数据源取错**：阶段状态在 `state.json`、judge 摘要在 `cache/<sha>/fidelity_report.json`
+  （原先都从 `metrics.json` 取，永远取不到）；补「这次 run 没跑完」的显式状态。
+- **tier 语义混用**：卡片等级是**抽取方式**的可信度（S 确定性 / B 模型 / C 启发式），
+  与来源等级（S/A/B/C）不是一回事 → 界面分栏改名，筛选项去掉不存在的取值。
+
+### 回归
+
+新增 6 项测试（LLM 零配置自识别、配置文件读取与优先级、doctor 自检、
+检视台单文件生成、数据注入转义、CLI 生成检视台）。**共 66 项全过**。
+
+#### 2.1.0 也包含（此前的 3.0 候选）：judge 真值 + 读图能力卡 + 插件内置化
+
+#### 亮点
+
+- **体裁额外必填字段从「声明」变成「契约」**：插件用
+  `capability_schema.genre_fields` 声明本体裁专属字段（decision_checklist 的
+  threshold / tradeoff_matrix / decision_tree / not_applicable），流水线现在
+  真的读它——S4 提前加载插件并把字段清单注入抽取 prompt，模型逐个填写；
+  确定性抽取路径填「书里没讲」（不编造阈值/矩阵）；卡片新增 `genre_fields` 字段，
+  渲染时进入「体裁必填字段」区块并参与模板替换。此前这些字段只是写在插件里、
+  全仓无人消费。
+- **LLM judge 接入：groundedness / V2 / V3 从 `null` 变真值**
+  （`fidelity/judge.py` + 版本化 prompt `judge_v1.md` / `judge_v2_v1.md`）。
+  - **groundedness**：3 个不同角色（考据员 / 事实核查员 / 逆向怀疑者）独立判定，
+    **多数票**；`metric_type` 仍为 `heuristic`——分类依据是「依赖模型主观判断」，
+    与是否已接入无关（口径见 `docs/FIDELITY.md` §7）。
+  - **V2 预测力**：**独立一次调用，只给框架卡、不给原文上下文**（真 fresh-context），
+    模型自拟新情境问题并只按卡规则作答，再判断答案是否由卡规则唯一确定。
+  - **V3 独特性**：先过 `fidelity/common_sense_denylist.txt`（确定性前置过滤），
+    再由 judge 判定区分度。
+  - **V1 跨域佐证**：原本 `v1_cross_domain` 恒为空数组（声称 measured 却无数据），
+    现按 shingle 计数真实产出佐证 segment 列表。
+  - 诚实约定：未配置 LLM → 不调用、值保持 `null`（绝不用启发式假装有 judge 结果）；
+    单票失败不计票、全部失败记为**未知（None）而非 False**；`model_fingerprint`
+    与数值一同出现，换模型/换 prompt 即漂移。
+  - 实测（本地 mock 端点，28 张卡）：judge 3 票多数判定、`groundedness=1.0`、
+    `v2_pass_rate` / `v3_pass_rate` 有真值、`llm_calls=64`（16 卡 × 4 次）记账准确。
+- **读图 → 能力卡**（`capabilities/figures.py` + prompt `figure_insight_v1.md`）。
+  视觉模型看图，把图示里的信息提炼成 RIA 六段，产出一张带 `origin=figure`、
+  `confidence.tier=B` 的能力卡；`R_quote` 用**语料里的逐字切片**（图注或锚点处原文，
+  ≤24 字）保证可溯源，I/A/B 是模型解读。
+  - **网页图定位**：网页图片常只有 alt（alt 文本不在正文里、无法在语料中定位），
+    fetch 现在记录**图片前文的锚点片段**，S1 用它把图锚进语料
+    （`anchor_kind=context`），实测锚定率从 2/27 提升到 **33/35**（10 按图注 + 23 按上下文）。
+  - 诚实降级：未配置视觉模型 → 不产出任何解读（图仍提取、挂接、交付）；无位图
+    （矢量图）或无锚点 → 不做卡。
+- **插件内置化**：`professional_analysis`（此前是 `plugins/user/` 外挂）迁入
+  `plugins/builtin/`；新增内置 `decision_checklist`（PLUGIN_SPEC §3.3：4 字段
+  threshold / tradeoff_matrix / decision_tree / not_applicable + When X do Y because Z
+  结构化规则 + 《决策单》输出契约）。加载器现有 4 个内置体裁，`--genre` 可指定，
+  auto 路由可命中（`configs/router.json` 早已预留这两个体裁的权重与先验）。
+
+#### Fixed
+
+- **ADR-002 映射不一致**：`resolve_plugin` 原先把 `knowledge_pack` 引擎硬编码指向
+  `knowledge_reference`，与冻结 ADR「路由取 top1，引擎 = 插件 `default_engines`」不符
+  —— 路由到 decision_checklist / professional_analysis 时，knowledge_pack 产物仍用
+  knowledge_reference 渲染。现改为优先用被路由的体裁插件，不支持时才退回检索型契约。
+- **状态机校验只做了 1/4**：PLUGIN_SPEC §2.1 要求四项（状态合法 / 非终态可达 /
+  初始到终态有路 / 无孤立状态），原 validator 只查「terminal 可达」。现补齐四项，
+  4 个内置插件在新校验下全部通过。
+- **`llm_calls` 漏记成功调用**：旧实现只在失败时计数，与模块文档「每次真实 HTTP
+  调用计一次」相反；现每次尝试（含被温度重试的那次）精确计一次。
+- **S0 缓存不失效**：S0 哈希只含源文件路径，重新抓取同一 URL（内容变、路径不变）
+  不会让缓存失效，旧 `sources.json` / `figures.json` 会被误当新结果复用；现哈希含
+  内容指纹（path#sha256）。
+- **V1 对短引文恒失效**：固定 13 字 shingle 比 8-24 字的 R_quote 还长，短引文永远
+  命中不到；现 shingle 长度取 `min(13, len(quote))`，门槛为引文 shingle 的一半。
+- **图解读卡引文过长顶破版权门**：60 字锚点 × 12 张卡把总引文比推到 4.95%（上限 3%），
+  被版权门正确拦下；现按本项目引文惯例收敛到 ≤24 字。
+- **schema 枚举越界**：图解读卡曾把 `extractor` 改成 `heuristic+figure-insight`，
+  与 schema 枚举冲突（流水线当场中止）；现不改 `extractor`，图卡数量另记
+  `figure_cards`。
+- **并发写损坏 state.json**：`dump_json` 的临时文件名固定，多进程并行跑流水线
+  （如 agent 并行 dogfood）会互相覆盖写入，产生损坏的 JSON（实测 `Extra data`）。
+  现临时文件名带进程号隔离。
+- `schema_check` 补 `pattern/minLength/maxLength` 执法（2.0 已修，本轮沿用）。
+
+#### 回归
+
+新增 16 项测试（图注锚定两种方式、V2 fresh-context 不带上下文、投票失败=未知、
+V1 确定性、denylist、ledger 真实 V1/V2/V3、未接 judge 仍为 null、读图卡结构与
+逐字锚点、无位图/未锚定跳过、无视觉模型不产出、llm_calls 记账、视觉 payload 结构、
+体裁字段确定性路径填「书里没讲」、ADR 映射、状态机四项校验、并发写隔离）。
+
 ## 2.0.0 (2026-11-24) — 多源知识编译：网页 + 论文 + 图表资产
 
 输入从「一本书」扩展到「书 + 网页 + 论文」，且**图必须用起来**：原文/原网页的图示
