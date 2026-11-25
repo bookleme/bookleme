@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..fidelity.overlap import max_contiguous_copy, shingle_jaccard, total_quote_ratio
+from ..fidelity.overlap import (max_contiguous_copy, shingle_jaccard,
+                                 source_quote_ratio, total_quote_ratio)
 
 _FORBIDDEN_NAMES = {"full_text.txt", "char_map.json"}
 
@@ -27,8 +28,17 @@ def run_copyright_gate(skill_dir: Path, full_text: str, quotes: list[str], confi
     bad_quote = [q for q in quotes if len(q) > config["max_quote_chars"]]
     add("single_quote_char_limit", not bad_quote, max((len(q) for q in quotes), default=0),
         config["max_quote_chars"])
-    ratio = total_quote_ratio(present, artifact)
-    add("total_quote_ratio", ratio <= config["total_quote_ratio_ceiling"], round(ratio, 6),
+    # 第 2 条硬门：**引文占源文的比例**（版权问题的正确刻度）。
+    # 为什么不用「引文占产物的比例」当硬门：那个分母是产物字数，于是书越短、
+    # 卡越少，被罚得越重。同一份引文（1383 字）在 25K 字文章上占 7.5%，
+    # 在 300K 字的书上只占 0.77% —— 它测的是书的长度，不是抄了多少。
+    # 真正的版权问题是「从原作搬走了多少比例」，与源文长度无关。
+    # artifact 相对值仍如实报告（供人看），但不作硬门。
+    ratio = source_quote_ratio(present, full_text)
+    add("source_quote_ratio", ratio <= config["total_quote_ratio_ceiling"],
+        round(ratio, 6), config["total_quote_ratio_ceiling"])
+    art_ratio = total_quote_ratio(present, artifact)
+    add("artifact_quote_ratio_informational", True, round(art_ratio, 6),
         config["total_quote_ratio_ceiling"])
     contiguous = max_contiguous_copy(full_text, artifact)
     add("max_contiguous_copy_chars", contiguous <= config["max_contiguous_copy_chars"], contiguous,

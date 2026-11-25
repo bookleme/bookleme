@@ -33,6 +33,13 @@
   <a href="#docs">文档</a>
 </p>
 
+> **已发布 2.1.0**：在 2.0.0 之上，这一版把「体验」落到**产物本身能不能用**上——
+> 撤回了做偏的检视台（UI 不是产品价值，技能真正的界面是它在大模型里的表现），
+> 并新增**宿主 Agent 承接通道**：BookLeme 是 harness，在场调它的那个智能体
+> 本身就是大模型，忠实度判定与能力卡提炼都由宿主承接——**用户不需要配任何
+> API key**。同时修复了网页编译链路（此前结构全过但内容全废）与版权门第 2 条
+> 的刻度。详见 [CHANGELOG.md 2.1.0](CHANGELOG.md#210-2026-11-25--把体验落到产物价值而不是界面)。
+
 ---
 
 <a id="why"></a>
@@ -133,7 +140,7 @@
 | `artifact_compliance_rate` | measured | 1.00 | ✅ 1.00 |
 | `shingle_overlap_max` | measured | ≤0.10 | ✅ 0.0006 |
 | `coverage_score` | measured | ≥0.85 | ✅ **1.00** |
-| `groundedness` | heuristic | 只报告 | `null`（LLM judge 未接入） |
+| `groundedness` | heuristic | 只报告 | 有 judge 时为真实多数票；没配模型时 `null`（不伪造） |
 
 > 📎 指标取自真实书稿批（273 页中文书，run 20261109-164758）：14/14 能力 verified、双引擎冒烟全过、版权六门全过（引文占比 0.016 / 上限 0.03）。早期合成书批过程值（`coverage_score` 0.667）如实留档。
 
@@ -141,7 +148,9 @@
 
 **6 条版权硬门**（任一失败即不安装、不发布）：单条引文 ≤150 字且逐字可追溯 · 总引文比 ≤0.03 · 连续复制 ≤150 字 · 13 字 shingle 重叠 ≤0.10 · 产物不含全文 / 切片 · `contains_original_text = false`。
 
-**版权边界**：输出是**结构化衍生笔记，不含原文段落**。第三方书籍生成的 Skill 默认私有、不得分发；公开分发需在启动命令显式给 `--public --confirm-public PUBLISH`。MIT 只覆盖转换器，不覆盖任何书籍。详见 [docs/COPYRIGHT.md](docs/COPYRIGHT.md)。
+**版权边界**：输出是**结构化衍生笔记，不含原文段落**。使用权利默认按「未确认」处理——**私有自用照常，禁止公开分发**（要公开再用 `--user-rights` 声明并加 `--public --confirm-public PUBLISH`）。系统不会替你默认认领所有权。MIT 只覆盖转换器，不覆盖任何书籍。详见 [docs/COPYRIGHT.md](docs/COPYRIGHT.md)。
+
+**图示也要守版权**：论文/网页里的原图会以图片资产形式进入产物（`assets/figures/`），这属于复制原图本体——因此含图产物在权利非自有/公版时**禁止公开分发**，私有安装不受影响。
 
 ---
 
@@ -156,8 +165,14 @@ cd bookleme
 # 零第三方依赖，Python ≥ 3.9 即可
 python3 -m bookleme --version
 
+# 先体检：环境、体裁、最近一次跑得怎么样（不需要你配置任何东西）
+python3 -m bookleme doctor
+
 # 端到端：书 → Skill
 python3 -m bookleme run --input evals/cases/synthetic/coach_book.md --title "我的第一本书"
+
+# 这次编出来的技能能不能用：能答什么 / 照不照做 / 哪里薄
+python3 -m bookleme check
 
 # 校验产物（官方校验器 + 自有 lint + 版权硬门）
 python3 -m bookleme validate examples/coach
@@ -166,16 +181,179 @@ python3 -m bookleme validate examples/coach
 python3 -m unittest discover -s tests -v
 ```
 
+**从网上与论文取材**（2.0 起）：
+
+```bash
+# 直接给网址：自动抓取为公开源（tier B）再编译，不必先 fetch 再记路径
+python3 -m bookleme run --input https://arxiv.org/pdf/1706.03762 --title "论文标题"
+
+# 只抓不编（想先看看抓到了什么）
+python3 -m bookleme fetch https://example.com/article
+
+# 目录也行：自动摊平里面支持的文档
+python3 -m bookleme run --input ./我的书稿目录 --title "书名"
+```
+
+**公开源默认不混入**：以前只要 fetch 过一次，之后每次 run 都会把那些内容悄悄并进语料
+（书名是你的、覆盖章节和图却是别人的）。现在只纳入**本次通过 URL 抓取的**；
+要连同历史公开源一起编译，显式加 `--include-public`。
+原书图片会提取成 `assets/figures/` 并挂到对应能力卡。
+
 **常用参数**
 
 ```bash
---engine auto|knowledge_pack|behavior_skill|both   # 引擎选择
---genre <plugin_id>                                # 强制指定体裁
---no-router                                        # 关闭路由，双引擎全出
---install                                          # 写入技能真源（默认关闭）
---user-rights owned|licensed|public_domain|unknown # 使用权声明
+--engine auto|knowledge_pack|behavior_skill|both   # 产物形态（默认自动判定，一般不用指定）
+--genre <plugin_id>                                # 强制体裁（默认由路由判定，填错会直接报错并列出可用值）
+--no-router                                        # 跳过体裁判定，双引擎全出
+--install                                          # 写入技能真源（默认关闭，只出产物）
+--include-public                                   # 连同 sources/public 的历史公开源一起编译（默认只编本次输入）
+--user-rights owned|licensed|public_domain|unknown # 仅在要公开分发时才需要声明
 --public --confirm-public PUBLISH                  # 公开分发（裸词确认）
 ```
+
+**关于「要不要配大模型」——不用配，宿主 Agent 就是那个大模型**
+
+BookLeme 是个 **harness**：它编排流程，但不自带大模型。真正做判断的智能体就在现场——
+调用 `bookleme run` 的那个 Agent（WorkBuddy / Claude Code / Codex…）本身就是大模型。
+所以主观判定由**宿主 Agent 承接**，用户不需要配任何密钥：
+
+```bash
+python3 -m bookleme run --input <书>            # 编译；S5 自动导出 judge 工单
+python3 -m bookleme judge                        # （可选）重新导出工单
+#   → 宿主 Agent 读 out/<run_id>/judge_worklist.json，逐条判断，写 answers.json
+python3 -m bookleme judge --apply answers.json   # 回填 → groundedness / V2 / V3 变真值
+```
+
+分工是清楚的：
+
+- **确定性那半留在 Python**：引文逐字回验、shingle 重叠、覆盖率、版权门 —— measured 指标；
+- **主观那半交给宿主 Agent**：能力卡提炼（可执行规则 + 作者案例 + 触发语 + 步骤 + 边界）、
+  groundedness（断言是否真被原文支持）、V2（预测力）、V3（独特性）——本质是语义判断，
+  宿主用自己的推理能力逐条做，比绕一圈调外部 API 更直接，也不用用户多配一把密钥。
+
+两条工单：
+
+```bash
+python3 -m bookleme run --input <书>              # 编译；自动导出两份工单
+python3 -m bookleme judge --kind capability        # 能力卡抽取工单（可选重新导出）
+python3 -m bookleme judge --kind judge             # 忠实度判定工单
+#   → 宿主 Agent 读工单逐条做，写答案 JSON
+python3 -m bookleme judge --apply-capabilities capability_answers.json
+python3 -m bookleme judge --apply answers.json
+#   → 回填后重跑 bookleme run，渲染层用新能力卡重新出产物
+```
+
+> **为什么能力卡必须由宿主提炼**：`capabilities/extract.py` 的 heuristic 抽取器只会填
+> 模板句（「按「X」判断情境，再决定是否套用该方法」）——它没有知识，等于把
+> 「去读原文」的活推回给用户。用户要的是结论，不是原文链接。宿主承接后，
+> 每张卡都带上可执行规则、书中案例（含可核查数字）、触发语、执行步骤与不适用边界。
+
+回填走与在线 judge **完全相同**的归约逻辑（多视角多数票、平票=未决），两种来源的
+指标口径一致、可比。
+
+<details>
+<summary>可选：走外部模型 API（高级用户）</summary>
+
+编译期调模型（更深的卡片抽取、忠实度 judge、读图预填）也可以配外部模型：
+
+- 设置任意常见厂商的标准环境变量（如 `OPENAI_API_KEY` / `MOONSHOT_API_KEY` /
+  `DASHSCOPE_API_KEY` / `DEEPSEEK_API_KEY` / `ARK_API_KEY` …）就会被**自动识别**，
+  无需知道 BookLeme 的专有变量名；也可写 `~/.bookleme/config.json` 的 `llm` 段；
+- 配了走外部模型通道，没配走宿主 Agent 承接 —— **两条路都能拿到真值**；
+- **读图不需要编译期视觉模型**：产物里带「读图任务」区块，由使用该技能的智能体
+  （多数模型原生支持多模态）在需要时亲自看图作答——这才是这套东西该有的分工。
+
+</details>
+
+```bash
+python3 -m bookleme doctor    # 看当前识别到什么
+```
+
+---
+
+<a id="figures"></a>
+
+## 图示：从「提取」到「用起来」
+
+书和论文里最有信息量的往往是图。2.0 起，图不再被当作「图片附件」，而是**一等公民**：
+
+| 环节 | 做什么 |
+|---|---|
+| 提取 | PDF 逐页抓栅格图 + 图注；网页抓 `<figure>/<figcaption>` 配图；矢量图如实标「仅图注」 |
+| 锚定 | 图注逐字定位到原文；网页图用「图前正文片段」定位（实测锚定率 2/27 → **33/35**） |
+| 挂接 | 挂到**最近的能力卡**（窗口 2000 字符内）——图注紧邻的讨论就是它的配套对象 |
+| 交付 | 图片资产进 `assets/figures/`；`references/figures-index.md` 给锚定状态与页码 |
+| 读图 | 产物带「读图任务」区块：由使用该技能的智能体**亲自看图**作答（多数模型原生支持多模态） |
+| 解读（可选） | 编译期若检测到可用模型，会把图示直接写成能力卡（`origin=figure`，可信度 B） |
+
+**图注原文不进产物**：图注是原文文本，22 条全量复制会把引文比顶到 13%（上限 3%），版权门会拦下。
+逐字图注与精确位置存在共享 IR `figures.json` 里，随时可回读、可溯源。
+
+---
+
+<a id="check"></a>
+
+## 验收 · `bookleme check`（这次到底得到了什么）
+
+编译产物散在几个 JSON 和一堆 Markdown 里。`check` 只回答三个用户真正关心的问题，
+**第一行就是判决**：
+
+```bash
+python3 -m bookleme check              # 默认最近一次 run
+python3 -m bookleme check <run_id>     # 指定
+python3 -m bookleme check --json       # 给机器；--strict 把「可改进」也算失败（CI 用）
+```
+
+```
+run ux3-clean · 可直接用
+抽取方式 deterministic-markup · LLM 调用 0 次
+
+[knowledge_pack] 人生设计练习册·框架速查
+  框架：6 个 · 可照着做 6/6 · 出处可逐字定位 6/6
+  能回答：重力问题与可设计的真问题 / 一问一答的追问节奏 / …
+  不能答：书中未涉及的问题（技能会明确回答「书里没讲」）；需要专业资质判断的问题
+```
+
+判决只有三种：**可直接用** / **能用，有需要留意的地方** / **不建议用（先修硬问题）**。
+硬问题指「技能会因此出错」的事：分片没有可逐字定位的出处、索引指向不存在的文件、
+SKILL.md 缺章节或没写「书里没讲」。薄处指「能用但会变弱」的事：图没锚定、
+缺 smoke 用例、索引漏了分片。
+
+> 没有 Web 界面。技能真正的「界面」是**它在大模型里的表现**，见下一节。
+
+---
+
+<a id="ux"></a>
+
+## 技能在大模型里怎么被用（这才是产品的「界面」）
+
+产物是给**智能体**用的技能包，它的使用体验由两件事决定：**怎么问**（连续深入对话）与
+**怎么交**（出报告）。这两件事的契约在四个内置体裁里是**同一套**。
+
+### 交付动线（四个体裁一致）
+
+```
+先结论（一句话就能用的判断）
+  → 再依据（带出处、可逐字追溯）
+    → 再边界（不适用条件 / 证伪条件）
+      → 最后「还需要哪些数据」
+```
+
+### 连续深入对话的三条纪律
+
+| 纪律 | 行为 |
+|---|---|
+| **可见进度** | 每轮反馈末尾交代「第 N 问 / 共 6-9 问」——只作交代，不催答、不连发 |
+| **可打断可收回** | 用户想跳过某问、想回上一问、改主意 → 立刻照办并说明现在进行到哪一步 |
+| **不打断手上的事** | 用户说「先这样/回头再说/到此为止」→ 立刻切 `paused` 状态，收束出当前结论就停，不追问 |
+
+中断不丢进度：每轮把 `current_state / asked_questions / answers` 写入 `state.json`，
+说「接着上次」即可从断点继续（`references/state-guide.md` 有完整约定）。
+
+### 图不是附件，是一等公民
+
+书和论文里最有信息量的往往是图。技能包会带「读图任务」区块：由**使用该技能的智能体**
+亲自看图作答，并注明「依据 FIG-XXX（原文 p.N）」；图里看不清就明说「图中此处无法辨认」。
 
 ---
 
@@ -244,7 +422,7 @@ S0 输入登记 ─► S1 确定性提取 ─► S2 中文分段 ─┬─► S3
 | 文档 | 内容 |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | S0–S9 流水线、幂等模型、共享 IR、可观测性 |
-| [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) | 16 个插件必填字段、4 内置插件骨架、加载与安全扫描 |
+| [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) | 18 个插件必填字段、4 内置插件骨架、加载与安全扫描 |
 | [docs/FIDELITY.md](docs/FIDELITY.md) | 7 指标、逐字引文校验、V1/V2/V3、未验证假设表 |
 | [docs/COPYRIGHT.md](docs/COPYRIGHT.md) | 混合输入、provenance、6 条硬门、可分发性判定 |
 | [docs/EVALS.md](docs/EVALS.md) | 评测集设计、22 条硬验收清单、冒烟测试 |

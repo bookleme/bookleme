@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,19 +24,21 @@ from .config import (
     OUT_DIR, PROGRESS_PATH, ROOT, ROUTER_CONFIG, SCHEMA_DIR, STATE_PATH, dump_json, load_json,
 )
 from .hashing import sha256_file, sha256_text, stage_input_hash
+from .intake import expand_paths, infer_title, short_title
 from .state import StateStore
 from .extract import SUPPORTED_EXTENSIONS, extract_source, merge
 from .extract.figures import extract_pdf_figures, html_figure_entries, locate_captions
 from .segment import segment_text
 from .router import route
-from .capabilities import attach_figure_refs, extract_capabilities
-from .fidelity import build_claim_ledger, build_fidelity_report, verify_quotes
+from .capabilities import attach_figure_refs, extract_capabilities, extract_figure_cards
+from .fidelity import (build_claim_ledger, build_fidelity_report, judge_capabilities,
+                      v1_cross_domain, verify_quotes)
 from .render import build_description, render_skill
 from .plugins import load_plugins, resolve_plugin
 from .validate import lint_skill_dir, run_copyright_gate, validate_skill
 from .eval import run_smoke
 from .provenance import build_manifest, figure_distribution_block
-from .install import install_skill
+from .install import install_skill, preflight
 from .schema_check import validate as schema_validate
 
 SCHEMA_FOR = {
@@ -55,6 +58,26 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _load_host_blocks(cache: Path, run_id: str) -> list[dict] | None:
+    """载入宿主 Agent 承接抽取的能力卡（若已回填）。
+
+    宿主判定结果落在 `cache/host_capabilities.json`（由 `bookleme judge
+    --apply-capabilities` 写入）。有就用它 —— 这是「零配置拿到真内容」的
+    关键：heuristic 模板句没有知识，宿主承接的卡才有。
+    """
+    p = Path(cache) / "host_capabilities.json"
+    if not p.is_file():
+        return None
+    try:
+        data = load_json(p)
+    except (OSError, ValueError):
+        return None
+    blocks = data.get("blocks")
+    if isinstance(blocks, list) and blocks:
+        return blocks
+    return None
+
+
 class Logger:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -67,6 +90,16 @@ class Logger:
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
         print(msg, flush=True)
+
+    def detail(self, msg: str) -> None:
+        """只进日志文件、不刷终端（中间产物的逐文件路径属于这类）。
+
+        终端只留「阶段级」信息；用户要的全部绝对路径在 run 结束后的汇总 JSON 里。
+        """
+        line = f"[{_now()}] {msg}"
+        self.lines.append(line)
+        with self.path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
 
 
 class PipelineError(RuntimeError):
@@ -81,18 +114,21 @@ class Pipeline:
         self.state = StateStore(STATE_PATH)
 
     # ---------- helpers ----------
-    def _write(self, path: Path, obj: dict, log: Logger) -> None:
+    def _write(self, path: Path, obj: dict, log: Logger, quiet: bool = False) -> None:
         dump_json(Path(path), obj)
         name = Path(path).name
         if name in SCHEMA_FOR:
             errors = schema_validate(obj, load_json(SCHEMA_DIR / SCHEMA_FOR[name]))
             if errors:
                 raise PipelineError(f"{name} 未通过 schema 校验：{errors[:5]}")
-        log(f"    wrote {path}")
+        # 中间产物默认只进日志文件：终端只留「阶段级」信息，完整路径在末尾汇总里给
+        if not quiet:
+            log.detail(f"wrote {path}")
 
     def _write_text(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
+        # 临时文件名带进程号：并发跑多个流水线时共用同名 .tmp 会互相覆盖
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
 
@@ -119,33 +155,68 @@ class Pipeline:
             install: bool = False, title: str | None = None, author: str = "",
             isbn: str = "", language: str = "zh", user_rights: str | None = None,
             public: bool = False, confirm_public: str | None = None,
-            extra_plugin_dir: str | None = None, dry_run: bool = False) -> dict:
+            extra_plugin_dir: str | None = None, dry_run: bool = False,
+            include_public: bool = False) -> dict:
 
         run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
         llm.reset_counters()  # per-run LLM 调用计数
+        t_start = time.monotonic()
+        # 用户手上可能是目录、网址，或一堆零散文件；先摊平再谈流水线，
+        # 别把「整理输入」这件事留给用户（他给什么我们收什么）。
+        local_inputs, urls = expand_paths(input_paths)
+        if not local_inputs and not urls:
+            raise PipelineError(
+                "没有可用输入：目录里没有支持的文档"
+                "（.md/.txt/.pdf/.docx/.epub/.html/.rtf/.mobi），也没给网址。")
         log_path = LOG_DIR / self.milestone / f"run-{run_id}.log"
         log = Logger(log_path)
         out_dir = OUT_DIR / run_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(input_paths)} 个；里程碑 {self.milestone}")
+        # 横幅只给「此刻有用」的信息：总量与日志路径。
+        # 不再打「预计 30-45 分钟」——实测大部分批次几秒就跑完，那个估计是误导。
+        log(f"[BATCH] 计划总量：9 个 stage (S0-S9)，输入源 {len(local_inputs) + len(urls)} 个")
         log(f"[BATCH] 实时日志：{log_path}（进度 {PROGRESS_PATH} / {STATE_PATH}）")
-        log("[BATCH] 预计完成：约 30-45 分钟（heuristic 估计，非承诺）")
-        self._write_text(PROGRESS_PATH,
-                         f"# BookLeme 进度（最新批次 {run_id}）\n\n"
-                         f"- 计划总量：S0-S9 共 9 个 stage；输入源 {len(input_paths)} 个\n"
+        progress_body = (f"# BookLeme 进度（最新批次 {run_id}）\n\n"
+                         f"- 计划总量：S0-S9 共 9 个 stage；输入源 {len(local_inputs) + len(urls)} 个\n"
                          f"- 日志绝对路径：{log_path}\n"
-                         f"- 预计完成：约 30-45 分钟（估计）\n\n"
+                         f"- LLM 配置指纹：{llm.config_fingerprint()}"
+                         f"（{llm.settings().get('source') or '未配置'}）\n\n"
                          f"## Stage 记录\n")
+        self._write_text(PROGRESS_PATH, progress_body)
+        # 同时留一份本次 run 专属的进度文件：并发跑时 progress.md 会被互相覆盖
+        self._write_text(LOG_DIR / self.milestone / f"progress-{run_id}.md", progress_body)
 
         rights = user_rights or self.config["user_rights"]
-        book_title = title or Path(input_paths[0]).stem
         model_fingerprint = f"deterministic-{__version__} (no LLM judge in this batch)"
 
         # ---------------- S0 Intake ----------------
         log("S0 Intake")
+        fetched: list[dict] = []
+        if urls:
+            # 网址 = 公开来源（tier B）。抓下来落进 sources/public，S0 后面按公开源吃进去，
+            # 不需要用户先跑一次 fetch 再记路径。
+            from .fetch import fetch_url
+            for u in urls:
+                try:
+                    rec = fetch_url(u)
+                except Exception as exc:
+                    # 抓取失败最常见的是代理/证书问题；给出能自己走的下一步，
+                    # 而不是把 SSL 栈丢给用户
+                    raise PipelineError(
+                        f"抓取 {u} 失败：{type(exc).__name__}: {str(exc)[:160]}。"
+                        f"可以先手动下载，再用 --input 指向本地文件。") from exc
+                fetched.append(rec)
+                log(f"    抓取 {u} → sources/public（公开来源，tier B）")
+        # 书名不该默认成文件名：先看文档自带的标题，再退回清洗过的文件名，
+        # 并在日志里说清取自哪里（用户才知道要不要用 --title 覆盖）。
+        if title:
+            book_title = title
+        else:
+            book_title, title_hint = infer_title(local_inputs, fetched)
+            log(f"    书名「{book_title}」（{title_hint}）")
         sources: list[dict] = []
-        for i, raw in enumerate(input_paths, 1):
+        for i, raw in enumerate(local_inputs, 1):
             p = Path(raw).expanduser().resolve()
             if not p.is_file():
                 raise PipelineError(f"输入文件不存在：{p}")
@@ -164,9 +235,17 @@ class Pipeline:
         public_dir = ROOT / "sources/public"
         public_data: dict[str, dict] = {}
         input_shas = {s["sha256"] for s in sources}
+        # 公开源默认**不再无脑并入**：以前只要 fetch 过一次，之后每次 run 都会把那些
+        # 内容悄悄混进语料（表现为书名是你的，覆盖章节和图却是别人的）。
+        # 现在只纳入两种：本次通过 URL 抓取的，或用户显式 --include-public。
+        wanted_urls = {r.get("url") for r in fetched if r.get("url")}
+        skipped_public = 0
         if public_dir.exists():
             for f in sorted(public_dir.glob("*.json")):
                 data = load_json(f)
+                if not include_public and data.get("url") not in wanted_urls:
+                    skipped_public += 1
+                    continue
                 if data.get("file"):
                     # 文件型公开源先算 sha：与 --input 传入的同一文件去重，防重复计源
                     pfile = public_dir / data["file"]
@@ -197,6 +276,9 @@ class Pipeline:
                         "retrieved_at": data.get("retrieved_at", ""),
                         "extract_status": "pending", "figure_text_lost": False,
                     })
+        if skipped_public:
+            log(f"    sources/public 里还有 {skipped_public} 个公开源未纳入"
+                f"（要一起编译请加 --include-public）")
         if not sources:
             raise PipelineError("没有可用输入源")
 
@@ -206,8 +288,10 @@ class Pipeline:
         # sources.json 是跨 run 共享 IR（内容须稳定）；provenance_manifest.json
         # 含 run_id / generated_at，必须按 run 隔离，否则不同 run 会串味。
         s0_paths = [cache / "sources.json", out_dir / "provenance_manifest.json"]
+        # 哈希必须含内容指纹：只含路径的话，重新抓取同一 URL（内容变了、路径没变）
+        # 不会让 S0 失效，旧 sources.json / figures.json 会被误当成新结果复用。
         s0_hash = stage_input_hash([DEFAULT_RUN_CONFIG, str(book_title), rights]
-                                   + [s["path"] for s in sources])
+                                   + [f"{s['path']}#{s['sha256']}" for s in sources])
         self.state.ensure_run(run_id, book_sha256, model_fingerprint,
                               engine_config_hash=stage_input_hash([self.config, self.router_cfg]))
         if self.state.should_skip(run_id, "S0", s0_hash, s0_paths):
@@ -304,6 +388,9 @@ class Pipeline:
                     "figure_id": fid, "source_id": e["source_id"], "page": e.get("page"),
                     "kind": e["kind"], "caption": e["caption"],
                     "char_start": e.get("char_start"), "char_end": e.get("char_end"),
+                    "anchor_kind": e.get("anchor_kind"),
+                    "pairing_uncertain": bool(e.get("pairing_uncertain")),
+                    "unlabeled": bool(e.get("unlabeled")),
                     "image_file": image_file,
                 })
             figures_obj = {"schema_version": "2.0", "book_sha256": book_sha256,
@@ -367,7 +454,13 @@ class Pipeline:
             self.state.mark(run_id, "S3", s3_hash, s3_paths,
                             degraded=router_result["override_source"] == "ambiguity",
                             note=f"top1={router_result['top1']} margin={router_result['margin']}")
-        log(f"    体裁 {router_result['genres']} → 引擎 {router_result['engines']} "
+        # 体裁插件的额外必填字段由插件自己声明（capability_schema.genre_fields），
+        # 抽取阶段就要知道它们 —— 故此处提前加载插件，并把插件源码纳入 S4 哈希。
+        registry_s4, _ = load_plugins(extra_plugin_dir)
+        genre_names = "、".join(
+            f"{g}（{getattr(registry_s4.get(g), 'display_name_zh', '')}）"
+            for g in router_result["genres"]) or "无"
+        log(f"    体裁 {genre_names} → 引擎 {router_result['engines']} "
             f"({router_result['override_source']})")
 
         # ---------------- S4 Capabilities ----------------
@@ -375,20 +468,74 @@ class Pipeline:
         s4_paths = [cache / "capabilities.json"]
         capability_sources = sorted((Path(__file__).parent / "capabilities").glob("*.py"))
         llm_sources = sorted((Path(__file__).parent / "llm").rglob("*"))
-        s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], s1_paths[4], DEFAULT_RUN_CONFIG]
-                                   + capability_sources + llm_sources)
+        plugin_files_s4 = sorted(str(Path(getattr(p, "source_path", "")).resolve())
+                                 for p in registry_s4.values())
+        primary_genre = (router_result.get("genres") or ["knowledge_reference"])[0]
+        genre_fields = {}
+        for gid in ([primary_genre] + list(router_result.get("genres") or [])):
+            plugin = registry_s4.get(gid)
+            spec = getattr(plugin, "capability_schema", None) or {}
+            gf = spec.get("genre_fields")
+            if isinstance(gf, dict) and gf:
+                genre_fields = gf
+                break
+        if genre_fields:
+            log(f"    体裁额外必填字段：{'、'.join(genre_fields)}")
+        # LLM 生效配置进指纹：配了模型不重算、换模型指纹不变，都是「指标被当成同一次实验」
+        llm_fp = llm.config_fingerprint()
+        s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], s1_paths[4], DEFAULT_RUN_CONFIG,
+                                    llm_fp]
+                                   + capability_sources + llm_sources + plugin_files_s4)
         if self.state.should_skip(run_id, "S4", s4_hash, s4_paths):
             log("S4 SKIP")
             caps = load_json(s4_paths[0])
         else:
+            # 抽取通道优先级：宿主承接 > 外部模型 > heuristic 模板句。
+            # heuristic 只会填「按「X」判断情境」这种模板句 —— 没有知识，
+            # 等于把「去读原文」的活推回给用户。所以只要有宿主承接的能力卡，
+            # 就用它，不再退化到模板句。
+            host_blocks = _load_host_blocks(cache, run_id)
             caps = extract_capabilities(full_text, segments["segments"], self.config,
-                                        book_title=book_title)
+                                        book_title=book_title, genre_fields=genre_fields,
+                                        host_blocks=host_blocks)
             caps["book_sha256"] = book_sha256
             # genre_tags / engine_targets 是 per-run 的路由结果，不能写进共享
             # capabilities.json；保持为空数组，渲染阶段按本次 engines 过滤。
             # figure_refs：图注落在能力卡 char 区间内则挂接（2.0）。
             attach_figure_refs(caps, figures)
+            # 3.0：读图 → 能力卡（视觉模型）。未配置视觉模型 → 不产出任何解读（图仍交付）。
+            fig_cards = extract_figure_cards(figures, self.config, book_title=book_title,
+                                             full_text=full_text,
+                                             segments=segments["segments"],
+                                             genre_fields=genre_fields)
+            if fig_cards:
+                caps["capabilities"].extend(fig_cards)
+                # extractor 枚举只描述「正文卡的抽取方式」，图解读卡另计数量；
+                # 改写 extractor 会破坏 schema 枚举（如 "heuristic+figure-insight"）。
+                caps["figure_cards"] = len(fig_cards)
+                log(f"    读图生成能力卡 {len(fig_cards)} 张（图示 → 要点，视觉模型）")
+            # 每张卡记下**来源等级**（与 provenance 的 sources[].tier 同源），
+            # 免得下游把「抽取方式等级」误当来源等级写进 claim ledger。
+            # 必须在图解读卡并入之后再赋：否则新卡没有 source_tier，下游会退化成 C。
+            tier_by_sid = {s["source_id"]: s.get("tier", "C") for s in sources}
+            for cap in caps["capabilities"]:
+                cap["source_tier"] = tier_by_sid.get(cap.get("source_id", ""), "C")
             self._write(s4_paths[0], caps, log)
+            # 没走宿主承接时导出抽取工单：模板句卡没有知识，得让宿主来填。
+            if not host_blocks and caps.get("extractor") == "heuristic":
+                try:
+                    from .judge.capability import build_worklist as build_cap_worklist
+                    wl = build_cap_worklist(full_text, segments["segments"],
+                                            book_title,
+                                            genre_fields=genre_fields)
+                    wl_path = out_dir / "capability_worklist.json"
+                    self._write(wl_path, wl, log)
+                    log(f"    能力卡抽取工单已导出：{wl_path}"
+                        f"（{wl['item_count']} 个章节待提炼）")
+                    log("    → 宿主 Agent 承接：逐节提炼成可执行规则，回填后重跑 "
+                        "`bookleme run` 即生效")
+                except Exception as exc:
+                    log(f"    抽取工单导出失败：{type(exc).__name__}: {exc}")
             self.state.mark(run_id, "S4", s4_hash, s4_paths,
                             degraded=caps["extractor"] == "heuristic",
                             note=f"extractor={caps['extractor']} caps={len(caps['capabilities'])}")
@@ -401,8 +548,10 @@ class Pipeline:
         # 纳入 fidelity 源码：改指标定义 / 未验证假设表后必须自动失效缓存，
         # 否则旧 fidelity_report.json 会被误当成新代码产物。
         fidelity_sources = sorted((Path(__file__).parent / "fidelity").glob("*.py"))
-        s5_hash = stage_input_hash([s4_paths[0], s1_paths[0], DEFAULT_RUN_CONFIG]
-                                   + fidelity_sources)
+        llm_sources_s5 = sorted((Path(__file__).parent / "llm").rglob("*"))
+        s5_hash = stage_input_hash([s4_paths[0], s1_paths[0], DEFAULT_RUN_CONFIG,
+                                    llm.config_fingerprint()]
+                                   + fidelity_sources + llm_sources_s5)
         if self.state.should_skip(run_id, "S5", s5_hash, s5_paths):
             log("S5 SKIP")
             caps_v = load_json(s5_paths[0])
@@ -414,8 +563,41 @@ class Pipeline:
                 char_map.get("map", char_map) if isinstance(char_map, dict) else char_map,
                 self.config,
             )
-            ledger = build_claim_ledger(caps_v, book_sha256, str(cache / "slices"))
-            fidelity = build_fidelity_report(caps_v, ledger, segments, quote_records, self.config)
+            # judge（可选）：groundedness / V2 / V3 的真实判定。
+            # 两条通道：
+            # 1) 配置了外部模型 → 直接调（保持向后兼容）；
+            # 2) 没配置 → **导出工单给宿主 Agent**。BookLeme 是 harness，
+            #    宿主 Agent 本身就是大模型，让用户去配 API key 让它自己调
+            #    外部模型，是把在场能做的事外包出去——多一道配置、多一把密钥。
+            #    确定性那半（逐字回验/覆盖率/版权门）不受影响，照常产出。
+            judge_result = None
+            v1 = v1_cross_domain(caps_v, segments)
+            jcfg = self.config.get("llm_judge") or {}
+            if jcfg.get("enabled", True) and llm.available():
+                judge_result = judge_capabilities(caps_v, full_text, self.config,
+                                                  votes=int(jcfg.get("votes", 3)))
+                log(f"    judge 已运行：judged={judge_result['summary']['judged']}"
+                    f"（{judge_result['votes']} 票多数，fingerprint="
+                    f"{judge_result['model_fingerprint']}）")
+            else:
+                # 导出工单：宿主 Agent 承接，无需用户配置任何东西
+                try:
+                    from .judge import build_worklist
+                    worklist = build_worklist(caps_v, full_text, self.config,
+                                              votes=int(jcfg.get("votes", 3)))
+                    wl_path = out_dir / "judge_worklist.json"
+                    self._write(wl_path, worklist, log)
+                    log(f"    judge 工单已导出：{wl_path}"
+                        f"（{worklist['item_count']} 条待判）")
+                    log("    → 宿主 Agent 承接：读工单逐条判断，写 answers.json 后执行")
+                    log(f"       `bookleme judge --run-id {run_id} --apply answers.json`")
+                    log("    → 在那之前，groundedness/V2/V3 保持 null（不伪造）")
+                except Exception as exc:
+                    log(f"    judge 工单导出失败：{type(exc).__name__}: {exc}")
+            ledger = build_claim_ledger(caps_v, book_sha256, str(cache / "slices"),
+                                        judge=judge_result, v1=v1)
+            fidelity = build_fidelity_report(caps_v, ledger, segments, quote_records,
+                                             self.config, judge=judge_result)
             self._write(s5_paths[0], caps_v, log)
             self._write(s5_paths[1], ledger, log)
             self._write(s5_paths[2], fidelity, log)
@@ -450,7 +632,7 @@ class Pipeline:
                     raise PipelineError(f"S6 找不到引擎 {eng} 的插件：{reason}")
                 short = "kp" if eng == "knowledge_pack" else "bs"
                 slug = f"book-{book_sha256[:8]}-{short}"
-                display = f"{book_title[:12]}·{plugin.display_name_zh}"
+                display = f"{short_title(book_title)}·{plugin.display_name_zh}"
                 description = build_description(plugin, book_title, self.config)
                 ctx = {
                     "slug": slug, "display_name": display, "description": description,
@@ -459,7 +641,7 @@ class Pipeline:
                     "verified_capabilities": verified_caps,
                     "segments": segments, "provenance_manifest": manifest,
                     "fidelity_report": fidelity, "router_result": router_result,
-                    "figures": figures,
+                    "figures": figures, "toc": toc,
                 }
                 files = plugin.render(ctx)
                 target = out_dir / "build" / eng / f"{display}（{slug}）"
@@ -530,8 +712,21 @@ class Pipeline:
             self._write(s7_paths[0], validation, log)
             self.state.mark(run_id, "S7", s7_hash, s7_paths)
             if not validation["all_passed"]:
-                failures = [a for a in per_artifact if not a["all_passed"]]
-                raise PipelineError(f"S7 硬门失败，产物不安装不发布：{json.dumps(failures, ensure_ascii=False)[:1200]}")
+                # 报错要能直接读懂并知道下一步：哪道门、哪个值超了、怎么改
+                problems = []
+                for a in per_artifact:
+                    for chk in a.get("copyright_gate", {}).get("checks", []):
+                        if not chk.get("passed"):
+                            problems.append(f"{a['engine']} · {chk['name']}：实测 {chk.get('value')} "
+                                            f"超过上限 {chk.get('ceiling')}")
+                    for e in a.get("quick_validate_errors", []) or []:
+                        problems.append(f"{a['engine']} · 产物格式：{e}")
+                    for e in a.get("lint_errors", []) or []:
+                        problems.append(f"{a['engine']} · 版式：{e}")
+                raise PipelineError(
+                    "S7 硬门未过，产物不安装、不发布：\n  - "
+                    + "\n  - ".join(problems[:8])
+                    + f"\n  完整报告：{out_dir / 'validation_report.json'}")
 
         # distribution decision as a start-flag gate, never asked mid-run
         if public and confirm_public != "PUBLISH":
@@ -550,8 +745,16 @@ class Pipeline:
         }, log)
 
         # ---------------- S8 Install (optional) ----------------
+        install_receipts: list[dict] = []
         if install and not dry_run:
             log("S8 Install（写入技能真源）")
+            preflight([
+                {"category": (self.config["category_knowledge"] if art["engine"] == "knowledge_pack"
+                              else self.config["category_behavior"]),
+                 "display_name": art["display_name"], "slug": art["slug"],
+                 "skill_dir": art["skill_dir"]}
+                for art in artifacts
+            ])
             receipts = []
             for art in artifacts:
                 category = (self.config["category_knowledge"] if art["engine"] == "knowledge_pack"
@@ -562,6 +765,7 @@ class Pipeline:
                     frontmatter_name=art["slug"], distribution="private",
                 )
                 receipts.append(receipt)
+            install_receipts = receipts
             self._write(out_dir / "install_receipt.json",
                         {"schema_version": "1.0", "receipts": receipts}, log)
             self.state.mark(run_id, "S8", stage_input_hash([s7_paths[0]]),
@@ -581,6 +785,8 @@ class Pipeline:
             metrics = {
                 "schema_version": "1.0", "run_id": run_id,
                 "extractor": caps_v["extractor"],
+                "book_title": book_title,
+                "book_sha256": book_sha256,
                 "llm_calls": llm.llm_calls,
                 "model_fingerprint": (llm.model_fingerprint("capability_extract_v1")
                                       if caps_v["extractor"] == "llm" else None),
@@ -634,7 +840,19 @@ class Pipeline:
             "metrics_path": str(out_dir / "metrics.json"),
             "validation_path": s7_paths[0].__str__(),
             "llm_calls": llm.llm_calls,
+            "installed": [r.get("target_abs", "") for r in install_receipts],
+            "next": [
+                f"看这次能不能用：python3 -m bookleme check {run_id}",
+                f"看指标：python3 -m bookleme eval --run-id {run_id}",
+                ("已装到技能目录，直接按 SKILL.md 的「触发场景」提问即可。"
+                 if install_receipts else
+                 "想装到技能目录：同一条命令加 --install（有缓存，重跑很快）"),
+            ],
         }
         log(f"[BATCH] 完成：{len(artifacts)} 个产物，all_passed={validation['all_passed']}；"
+            f"耗时 {time.monotonic() - t_start:.1f}s；"
             f"日志 {log_path}")
+        log(f"[BATCH] 下一步：{summary['next'][0]}")
+        if not install_receipts:
+            log(f"[BATCH] {summary['next'][2]}")
         return summary

@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme default.run.json（运行配置）",
+  "type": "object",
+  "required": ["schema_version", "engine", "distribution", "user_rights",
+               "max_quote_chars", "shingle_size", "shingle_overlap_ceiling",
+               "total_quote_ratio_ceiling", "max_contiguous_copy_chars",
+               "segment_window_chars", "segment_overlap_chars",
+               "skill_body_max_lines", "trigger_words_min", "trigger_words_max",
+               "llm_judge", "figure_insight"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "engine": { "type": "string", "enum": ["auto", "knowledge_pack", "behavior_skill", "both"] },
+    "distribution": { "type": "string", "enum": ["private", "public"] },
+    "user_rights": { "type": "string", "enum": ["owned", "licensed", "public_domain", "unknown"] },
+    "category_knowledge": { "type": "string" },
+    "category_behavior": { "type": "string" },
+    "max_quote_chars": { "type": "integer", "minimum": 1, "maximum": 150 },
+    "shingle_size": { "type": "integer", "minimum": 2 },
+    "shingle_overlap_ceiling": { "type": "number", "minimum": 0, "maximum": 1 },
+    "total_quote_ratio_ceiling": { "type": "number", "minimum": 0, "maximum": 1 },
+    "max_contiguous_copy_chars": { "type": "integer", "minimum": 0 },
+    "segment_window_chars": { "type": "integer", "minimum": 100 },
+    "segment_overlap_chars": { "type": "integer", "minimum": 0 },
+    "skill_body_max_lines": { "type": "integer", "minimum": 100 },
+    "trigger_words_min": { "type": "integer", "minimum": 1 },
+    "trigger_words_max": { "type": "integer", "minimum": 1 },
+    "llm_judge": {
+      "type": "object",
+      "required": ["enabled", "votes"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "votes": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "v2": { "type": "boolean" }
+      }
+    },
+    "figure_insight": {
+      "type": "object",
+      "required": ["enabled", "max_figures"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "max_figures": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    }
+  }
+}

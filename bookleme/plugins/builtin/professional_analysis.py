@@ -11,11 +11,17 @@ from bookleme.plugins.base import GenrePlugin
 PLUGIN = GenrePlugin(
     genre_id="professional_analysis",
     display_name_zh="财报分析流水线",
-    version="2.0.0",
+    version="2.1.0",
     router_rules={"source": "configs/router.json", "note": "权重外置，插件不硬编码"},
     capability_schema={
+        # RIA++ 六字段 + 本体裁在 PLUGIN_SPEC §3.2 强制的两个结论级字段。
         "required": ["title", "R_quote", "I_rephrase", "A1_author_case",
-                     "A2_user_trigger", "A3_steps", "B_not_applicable"],
+                     "A2_user_trigger", "A3_steps", "B_not_applicable",
+                     "falsification_condition", "evidence_binding"],
+        "genre_fields": {
+            "falsification_condition": "证伪条件：「若……则本判断作废」，每条结论必填",
+            "evidence_binding": "证据绑定：溯源到报表科目 / 行项 / 期间 / 发言人",
+        },
     },
     section_template=Template("""## 何时读本文件
 
@@ -42,6 +48,7 @@ $sections
 
 字数区间：$min_chars - $max_chars 字。
 结论归属：$verdict_ownership（每条结论必须绑定证据并给出证伪条件；不写「符合预期，仍需观察」）。
+呈现顺序固定：**先结论**（一句话就能用的判断）→ **再依据**（带出处、可逐字追溯）→ **再边界**（不适用条件 / 证伪条件）→ **最后「还需要哪些数据」**。
 """).template,
     hard_constraints=[
         "每条结论必须绑定证据（报表科目、行项、期间）并给出证伪条件（「若出现 X，则本判断作废」）；缺任一项不得下结论。",
