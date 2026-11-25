@@ -6,6 +6,13 @@
 
 ### 亮点
 
+- **体裁额外必填字段从「声明」变成「契约」**：插件用
+  `capability_schema.genre_fields` 声明本体裁专属字段（decision_checklist 的
+  threshold / tradeoff_matrix / decision_tree / not_applicable），流水线现在
+  真的读它——S4 提前加载插件并把字段清单注入抽取 prompt，模型逐个填写；
+  确定性抽取路径填「书里没讲」（不编造阈值/矩阵）；卡片新增 `genre_fields` 字段，
+  渲染时进入「体裁必填字段」区块并参与模板替换。此前这些字段只是写在插件里、
+  全仓无人消费。
 - **LLM judge 接入：groundedness / V2 / V3 从 `null` 变真值**
   （`fidelity/judge.py` + 版本化 prompt `judge_v1.md` / `judge_v2_v1.md`）。
   - **groundedness**：3 个不同角色（考据员 / 事实核查员 / 逆向怀疑者）独立判定，
@@ -39,6 +46,13 @@
 
 ### Fixed
 
+- **ADR-002 映射不一致**：`resolve_plugin` 原先把 `knowledge_pack` 引擎硬编码指向
+  `knowledge_reference`，与冻结 ADR「路由取 top1，引擎 = 插件 `default_engines`」不符
+  —— 路由到 decision_checklist / professional_analysis 时，knowledge_pack 产物仍用
+  knowledge_reference 渲染。现改为优先用被路由的体裁插件，不支持时才退回检索型契约。
+- **状态机校验只做了 1/4**：PLUGIN_SPEC §2.1 要求四项（状态合法 / 非终态可达 /
+  初始到终态有路 / 无孤立状态），原 validator 只查「terminal 可达」。现补齐四项，
+  4 个内置插件在新校验下全部通过。
 - **`llm_calls` 漏记成功调用**：旧实现只在失败时计数，与模块文档「每次真实 HTTP
   调用计一次」相反；现每次尝试（含被温度重试的那次）精确计一次。
 - **S0 缓存不失效**：S0 哈希只含源文件路径，重新抓取同一 URL（内容变、路径不变）
@@ -51,13 +65,17 @@
 - **schema 枚举越界**：图解读卡曾把 `extractor` 改成 `heuristic+figure-insight`，
   与 schema 枚举冲突（流水线当场中止）；现不改 `extractor`，图卡数量另记
   `figure_cards`。
+- **并发写损坏 state.json**：`dump_json` 的临时文件名固定，多进程并行跑流水线
+  （如 agent 并行 dogfood）会互相覆盖写入，产生损坏的 JSON（实测 `Extra data`）。
+  现临时文件名带进程号隔离。
 - `schema_check` 补 `pattern/minLength/maxLength` 执法（2.0 已修，本轮沿用）。
 
 ### 回归
 
-新增 12 项测试（图注锚定两种方式、V2 fresh-context 不带上下文、投票失败=未知、
+新增 16 项测试（图注锚定两种方式、V2 fresh-context 不带上下文、投票失败=未知、
 V1 确定性、denylist、ledger 真实 V1/V2/V3、未接 judge 仍为 null、读图卡结构与
-逐字锚点、无位图/未锚定跳过、无视觉模型不产出、llm_calls 记账、视觉 payload 结构）。
+逐字锚点、无位图/未锚定跳过、无视觉模型不产出、llm_calls 记账、视觉 payload 结构、
+体裁字段确定性路径填「书里没讲」、ADR 映射、状态机四项校验、并发写隔离）。
 
 ## 2.0.0 (2026-11-24) — 多源知识编译：网页 + 论文 + 图表资产
 

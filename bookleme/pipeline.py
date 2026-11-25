@@ -379,14 +379,30 @@ class Pipeline:
         s4_paths = [cache / "capabilities.json"]
         capability_sources = sorted((Path(__file__).parent / "capabilities").glob("*.py"))
         llm_sources = sorted((Path(__file__).parent / "llm").rglob("*"))
+        # 体裁插件的额外必填字段由插件自己声明（capability_schema.genre_fields），
+        # 抽取阶段就要知道它们 —— 故 S4 提前加载插件，并把插件源码纳入哈希。
+        registry_s4, _ = load_plugins(extra_plugin_dir)
+        plugin_files_s4 = sorted(str(Path(getattr(p, "source_path", "")).resolve())
+                                 for p in registry_s4.values())
+        primary_genre = (router_result.get("genres") or ["knowledge_reference"])[0]
+        genre_fields = {}
+        for gid in ([primary_genre] + list(router_result.get("genres") or [])):
+            plugin = registry_s4.get(gid)
+            spec = getattr(plugin, "capability_schema", None) or {}
+            gf = spec.get("genre_fields")
+            if isinstance(gf, dict) and gf:
+                genre_fields = gf
+                break
+        if genre_fields:
+            log(f"    体裁额外必填字段：{'、'.join(genre_fields)}")
         s4_hash = stage_input_hash([s1_paths[0], s2_paths[0], s1_paths[4], DEFAULT_RUN_CONFIG]
-                                   + capability_sources + llm_sources)
+                                   + capability_sources + llm_sources + plugin_files_s4)
         if self.state.should_skip(run_id, "S4", s4_hash, s4_paths):
             log("S4 SKIP")
             caps = load_json(s4_paths[0])
         else:
             caps = extract_capabilities(full_text, segments["segments"], self.config,
-                                        book_title=book_title)
+                                        book_title=book_title, genre_fields=genre_fields)
             caps["book_sha256"] = book_sha256
             # genre_tags / engine_targets 是 per-run 的路由结果，不能写进共享
             # capabilities.json；保持为空数组，渲染阶段按本次 engines 过滤。
@@ -395,7 +411,8 @@ class Pipeline:
             # 3.0：读图 → 能力卡（视觉模型）。未配置视觉模型 → 不产出任何解读（图仍交付）。
             fig_cards = extract_figure_cards(figures, self.config, book_title=book_title,
                                              full_text=full_text,
-                                             segments=segments["segments"])
+                                             segments=segments["segments"],
+                                             genre_fields=genre_fields)
             if fig_cards:
                 caps["capabilities"].extend(fig_cards)
                 # extractor 枚举只描述「正文卡的抽取方式」，图解读卡另计数量；

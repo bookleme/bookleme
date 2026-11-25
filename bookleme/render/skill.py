@@ -188,13 +188,25 @@ description: {ctx['description']}
 def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) -> str:
     ria = cap["ria"]
     steps = "\n".join(f"{i}. {s}" for i, s in enumerate(ria["A3_steps"], 1))
-    body = Template(plugin.section_template).safe_substitute(
-        trigger=str(ria["A2_user_trigger"]).rstrip("。；;．. "),
-        title=cap["title"], quote=ria["R_quote"],
-        rephrase=ria["I_rephrase"], author_case=ria["A1_author_case"],
-        steps=steps, not_applicable=ria["B_not_applicable"],
-    )
+    # 体裁额外必填字段（plugin.capability_schema.genre_fields）参与模板替换：
+    # 标准 RIA 字段优先，体裁字段只补空位，避免同名覆盖。
+    subst = {
+        "trigger": str(ria["A2_user_trigger"]).rstrip("。；;．. "),
+        "title": cap["title"], "quote": ria["R_quote"],
+        "rephrase": ria["I_rephrase"], "author_case": ria["A1_author_case"],
+        "steps": steps, "not_applicable": ria["B_not_applicable"],
+    }
+    genre_fields = cap.get("genre_fields") or {}
+    for key, val in genre_fields.items():
+        subst.setdefault(str(key), str(val))
+    body = Template(plugin.section_template).safe_substitute(**subst)
     span = cap["span"]
+    gf_block = ""
+    if genre_fields:
+        gf_lines = ["\n## 体裁必填字段\n"]
+        for key, val in genre_fields.items():
+            gf_lines.append(f"- **{key}**：{val}")
+        gf_block = "\n".join(gf_lines) + "\n"
     fig_block = ""
     refs = cap.get("figure_refs") or []
     if refs and figures:
@@ -213,6 +225,7 @@ def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) ->
         fig_block = "\n".join(lines) + "\n"
     return (
         f"{body}\n"
+        f"{gf_block}"
         f"{fig_block}"
         f"出处：{cap['source_id']} / {span['segment_id']} / char_range "
         f"[{span['char_start']}, {span['char_end']}) / 可信度 {cap['confidence']['tier']}\n"

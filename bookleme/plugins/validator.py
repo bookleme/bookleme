@@ -25,6 +25,54 @@ def _all_chinese(words) -> bool:
     return all(isinstance(w, str) and re.fullmatch(r"[\u4e00-\u9fff]{2,12}", w) for w in words)
 
 
+def _check_state_machine(machine: dict) -> list[str]:
+    """状态机四项检查（PLUGIN_SPEC §2.1）：
+
+    1. `initial` / `terminal` / `transition.from|to` 都必须是 `states[]` 里的合法状态；
+    2. 所有**非终态**状态必须从 `initial` 可达（不可达 = 死状态，流程走不到）；
+    3. `initial` 到某个 `terminal` 存在路径；
+    4. 无孤立状态（既无入边也无出边 = 悬空状态）。
+    """
+    errors: list[str] = []
+    states = set(machine.get("states") or [])
+    transitions = machine.get("transitions") or []
+    initial = machine.get("initial")
+    terminal = set(machine.get("terminal") or [])
+    if initial not in states:
+        errors.append(f"state_machine.initial {initial!r} 不在 states 中")
+    for st in sorted(terminal):
+        if st not in states:
+            errors.append(f"state_machine.terminal {st!r} 不在 states 中")
+    edges: dict[str, set[str]] = {}
+    targets: set[str] = set()
+    for tr in transitions:
+        frm, to = tr.get("from"), tr.get("to")
+        if frm not in states:
+            errors.append(f"transition.from {frm!r} 不在 states 中")
+        if to not in states:
+            errors.append(f"transition.to {to!r} 不在 states 中")
+        edges.setdefault(frm, set()).add(to)
+        targets.add(to)
+    reachable: set[str] = set()
+    if initial in states:
+        stack = [initial]
+        while stack:
+            cur = stack.pop()
+            if cur in reachable:
+                continue
+            reachable.add(cur)
+            stack.extend(edges.get(cur, ()))
+    for st in sorted(states - terminal):
+        if st not in reachable:
+            errors.append(f"状态 {st!r} 从 initial 不可达（死状态）")
+    if not (terminal & reachable):
+        errors.append("state_machine 的 terminal 状态不可达")
+    for st in sorted(states):
+        if st not in edges and st not in targets:
+            errors.append(f"状态 {st!r} 是孤立状态（既无入边也无出边）")
+    return errors
+
+
 def validate_plugin(plugin, path: str | None = None) -> list[str]:
     errors: list[str] = []
     for name in REQUIRED_FIELDS:
@@ -93,13 +141,7 @@ def validate_plugin(plugin, path: str | None = None) -> list[str]:
         if not isinstance(machine, dict) or not machine.get("states"):
             errors.append("behavior 插件必须有非空 state_machine.states")
         else:
-            states = set(machine["states"])
-            reachable = {machine.get("initial")}
-            for tr in machine.get("transitions", []):
-                if tr.get("from") in reachable:
-                    reachable.add(tr.get("to"))
-            if not set(machine.get("terminal", [])) & reachable:
-                errors.append("state_machine 的 terminal 状态不可达")
+            errors.extend(_check_state_machine(machine))
 
     if not isinstance(getattr(plugin, "capability_schema", {}), dict):
         errors.append("capability_schema 必须是 dict")

@@ -115,14 +115,24 @@ def _locate_quote_verbatim(full_text: str, quote: str) -> tuple[str, int]:
     return full_text[m.start():m.end()], m.start()
 
 
+def _genre_fields_block(genre_fields: dict) -> str:
+    """体裁额外必填字段的说明块（写进抽取 prompt）。"""
+    if not genre_fields:
+        return "（本体裁无额外必填字段）"
+    return "\n".join(f"- {name}：{desc}" for name, desc in genre_fields.items())
+
+
 def _llm(text: str, segments: list[dict], config: dict, book_title: str,
-         max_caps: int = 16) -> list[dict]:
+         max_caps: int = 16, genre_fields: dict | None = None) -> list[dict]:
     """LLM 抽取：I/A/B 由模型深化，R_quote 终身逐字校验（失败即丢弃该卡）。
 
     单卡失败不中断：跳过该段继续；全军覆没时调用方回退 heuristic。
+    `genre_fields` 是本体裁声明的额外必填字段（见 plugin.capability_schema）：
+    模型必须逐个填写，书中没有的写「书里没讲」。
     """
     from .. import llm as llm_mod
 
+    genre_fields = genre_fields or {}
     prompt_full = llm_mod.load_prompt("capability_extract_v1")
     system, user_tpl = llm_mod.split_prompt(prompt_full)
     tpl = Template(user_tpl)
@@ -137,7 +147,8 @@ def _llm(text: str, segments: list[dict], config: dict, book_title: str,
         if not content:
             continue
         user = tpl.safe_substitute(title=book_title, heading=heading,
-                                   body=content[:_LLM_BODY_CHARS])
+                                   body=content[:_LLM_BODY_CHARS],
+                                   genre_fields=_genre_fields_block(genre_fields))
         try:
             obj = llm_mod.chat_json(user, system=system)
         except llm_mod.LLMError:
@@ -152,6 +163,12 @@ def _llm(text: str, segments: list[dict], config: dict, book_title: str,
         steps = [str(s).strip() for s in steps if str(s).strip()] if isinstance(steps, list) else []
         if not steps:
             steps = ["确认适用条件", "按框架逐项检查", "给出带出处的结论或说明边界"]
+        raw_fields = obj.get("genre_fields")
+        raw_fields = raw_fields if isinstance(raw_fields, dict) else {}
+        filled = {}
+        for name in genre_fields:
+            val = str(raw_fields.get(name) or "").strip()
+            filled[name] = val or "书里没讲"   # 缺失即如实标注，不编造
         blocks.append({
             "title": str(obj.get("title") or heading).strip()[:24],
             "R_quote": quote,
@@ -164,6 +181,7 @@ def _llm(text: str, segments: list[dict], config: dict, book_title: str,
             "A3_steps": steps,
             "B_not_applicable": str(obj.get("B_not_applicable") or "").strip()
             or "不适用：书中未覆盖的问题，应明确回答「书里没讲」。",
+            "genre_fields": filled,
         })
     return blocks
 
@@ -207,13 +225,16 @@ def _segment_for(pos: int, segments: list[dict]) -> str:
 
 
 def extract_capabilities(full_text: str, segments: list[dict], config: dict,
-                         book_title: str = "") -> dict:
+                         book_title: str = "",
+                         genre_fields: dict | None = None) -> dict:
+    genre_fields = genre_fields or {}
     blocks = _parse_markup(full_text)
     extractor = "deterministic-markup"
     if not blocks:
         from .. import llm as llm_mod
         if llm_mod.available():
-            blocks = _llm(full_text, segments, config, book_title)
+            blocks = _llm(full_text, segments, config, book_title,
+                          genre_fields=genre_fields)
             if blocks:
                 extractor = "llm"
         if not blocks:
@@ -248,6 +269,11 @@ def extract_capabilities(full_text: str, segments: list[dict], config: dict,
             "source_id": "SRC-001",
             "span": span,
             "ria": {k: block[k] for k in _SIX},
+            # 体裁额外必填字段（plugin.capability_schema["genre_fields"]）：
+            # LLM 抽取时由模型填写；确定性抽取路径填「书里没讲」——确定性抽取器
+            # 本就拿不到阈值/矩阵这类结构化信息，如实标注而非留空或编造。
+            "genre_fields": {name: (block.get("genre_fields", {}) or {}).get(name, "")
+                             or "书里没讲" for name in genre_fields},
             "claims": [f"CLM-{i:04d}"],
             "checks": {"v1": [], "v2_predictive_q": "", "v2_pass": None,
                        "v3_uniqueness": None, "v3_pass": None},

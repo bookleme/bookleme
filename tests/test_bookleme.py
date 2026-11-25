@@ -918,5 +918,61 @@ class TestJudgeAndFigureInsight(unittest.TestCase):
         self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
 
 
+class TestGenreFieldContractAndAdr(unittest.TestCase):
+    """3.0 收尾：体裁额外字段契约化 + ADR-002 映射一致性 + 状态机四项校验。"""
+
+    def test_genre_fields_are_filled_even_on_deterministic_path(self):
+        from bookleme.capabilities import extract_capabilities
+        caps = extract_capabilities(
+            "第一章\n正文一句。\n", [{"segment_id": "seg-001", "heading": "第一章",
+                                     "char_range": [0, 20], "text": "第一章\n正文一句。\n"}],
+            load_run_config(), book_title="测试书",
+            genre_fields={"threshold": "阈值说明", "decision_tree": "决策树说明"})
+        card = caps["capabilities"][0]
+        self.assertEqual(set(card["genre_fields"]), {"threshold", "decision_tree"})
+        for name, val in card["genre_fields"].items():
+            self.assertTrue(val.strip(), f"{name} 不得为空")
+            self.assertEqual(val, "书里没讲", "确定性抽取路径不得编造阈值/矩阵，只能如实标注")
+
+    def test_resolve_plugin_follows_routed_genre_for_knowledge_pack(self):
+        from bookleme.plugins import load_plugins, resolve_plugin
+        registry, _ = load_plugins()
+        plugin, reason = resolve_plugin(registry, "knowledge_pack", ["decision_checklist"])
+        self.assertEqual(getattr(plugin, "genre_id", None), "decision_checklist",
+                         "ADR-002：引擎 = 插件 default_engines，knowledge_pack 也应用被路由的体裁")
+        self.assertTrue(reason.startswith("preferred:"))
+        # 首选插件不支持该引擎时，退回检索型契约
+        plugin2, reason2 = resolve_plugin(registry, "knowledge_pack", ["coach_dialogue"])
+        self.assertEqual(getattr(plugin2, "genre_id", None), "knowledge_reference")
+        self.assertIn("fallback", reason2)
+
+    def test_state_machine_validator_catches_dead_and_isolated_states(self):
+        from bookleme.plugins.validator import _check_state_machine
+        bad = {
+            "states": ["a", "b", "orphan"],
+            "initial": "a", "terminal": ["z"],
+            "transitions": [{"from": "a", "to": "b", "on": "x"}],
+        }
+        errors = _check_state_machine(bad)
+        joined = " | ".join(errors)
+        self.assertIn("orphan", joined, "孤立状态必须被拦下")
+        self.assertIn("terminal", joined, "terminal 不在 states 必须被拦下")
+        good = {
+            "states": ["a", "b"], "initial": "a", "terminal": ["b"],
+            "transitions": [{"from": "a", "to": "b", "on": "x"}],
+        }
+        self.assertEqual(_check_state_machine(good), [], "合法状态机不应报错")
+
+    def test_dump_json_isolates_concurrent_writes_by_pid(self):
+        from bookleme.config import dump_json
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "x.json"
+            dump_json(p, {"a": 1})
+            self.assertEqual(load_json(p), {"a": 1})
+            leftovers = list(Path(td).glob("*.tmp"))
+            self.assertEqual(leftovers, [], "临时文件必须被 replace 掉")
+            self.assertTrue(p.is_file())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

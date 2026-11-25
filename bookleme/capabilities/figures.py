@@ -53,7 +53,7 @@ def _segment_for(pos: int, segments: list[dict]) -> str:
 
 def extract_figure_cards(figures: list[dict], config: dict, book_title: str = "",
                          full_text: str = "", segments: list[dict] | None = None,
-                         call=None) -> list[dict]:
+                         call=None, genre_fields: dict | None = None) -> list[dict]:
     """为带位图且图注已锚定的图生成能力卡（读图 → 要点）。
 
     返回 capability 卡片列表（结构与 S4 抽取卡一致，可直接进 capabilities.json）。
@@ -143,6 +143,9 @@ def extract_figure_cards(figures: list[dict], config: dict, book_title: str = ""
                 "chapter": "",
             },
             "ria": ria,
+            # 体裁额外必填字段：读图只产出「图里的信息」，结构化阈值/矩阵类字段
+            # 读图不可得 → 如实标注「书里没讲」，不拿模型解读冒充。
+            "genre_fields": {name: "书里没讲" for name in (genre_fields or {})},
             "claims": [f"FIGCLM-{idx:03d}"],
             "checks": {"v1": [], "v2_predictive_q": "", "v2_pass": None,
                        "v3_uniqueness": None, "v3_pass": None},
