@@ -30,7 +30,11 @@ def build_claim_ledger(caps: dict, book_sha256: str, evidence_dir: str,
             "chapter": cap["span"].get("chapter", ""),
             "section": cap["span"].get("section", ""),
             "page": cap["span"].get("page", 0),
-            "source_tier": cap["confidence"].get("tier", "C"),
+            # source_tier 必须是**来源等级**（S 本地有权正文 / A、B、C 公开来源），
+            # 与 provenance_manifest.sources[].tier 严格一致（FIDELITY §4 硬规则 4）。
+            # 抽取方式的可信度另存 confidence_tier，别混进同一个字段。
+            "source_tier": cap.get("source_tier") or "C",
+            "confidence_tier": cap.get("confidence", {}).get("tier", "C"),
             "quote_char_count": len(cap["ria"]["R_quote"]),
             "quote_verified": quote_ok,
             "verification": {

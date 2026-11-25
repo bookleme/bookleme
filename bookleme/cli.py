@@ -55,7 +55,8 @@ def _build_parser() -> argparse.ArgumentParser:
     fet.add_argument("url", help="http(s) 地址（网页或 PDF 论文）")
     fet.add_argument("--name", default=None, help="自定义文件名（slug）")
     fet.add_argument("--tier", choices=["A", "B", "C"], default="B",
-                     help="来源分级：B=公开网络（默认）/C=聚合转载")
+                     help="来源分级（见 docs/COPYRIGHT.md）：A=作者访谈或官方讲义 / "
+                          "B=权威书评与公开网络内容 / C=推算；网页抓取默认 B")
     fet.add_argument("--license-note", default="", help="授权说明（自行核实后填写）")
     fet.add_argument("--no-images", action="store_true", help="不下载页面图片")
 

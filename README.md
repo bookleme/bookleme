@@ -326,7 +326,7 @@ S0 输入登记 ─► S1 确定性提取 ─► S2 中文分段 ─┬─► S3
 | 文档 | 内容 |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | S0–S9 流水线、幂等模型、共享 IR、可观测性 |
-| [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) | 16 个插件必填字段、4 内置插件骨架、加载与安全扫描 |
+| [docs/PLUGIN_SPEC.md](docs/PLUGIN_SPEC.md) | 18 个插件必填字段、4 内置插件骨架、加载与安全扫描 |
 | [docs/FIDELITY.md](docs/FIDELITY.md) | 7 指标、逐字引文校验、V1/V2/V3、未验证假设表 |
 | [docs/COPYRIGHT.md](docs/COPYRIGHT.md) | 混合输入、provenance、6 条硬门、可分发性判定 |
 | [docs/EVALS.md](docs/EVALS.md) | 评测集设计、22 条硬验收清单、冒烟测试 |

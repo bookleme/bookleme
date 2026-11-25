@@ -1173,5 +1173,61 @@ class TestReviewFixes(unittest.TestCase):
             self.assertEqual(errors, [], f"{cfg_path.name} 不合 schema：{errors}")
 
 
+    def test_fetch_rejects_non_http_and_internal_addresses(self):
+        from bookleme.fetch import fetch_url
+        from bookleme.fetch import _check_url
+        with tempfile.TemporaryDirectory() as td:
+            for bad in ("file:///etc/passwd", "ftp://example.com/x", "http://127.0.0.1/x",
+                        "http://localhost/x", "http://169.254.169.254/latest/meta-data/",
+                        "http://192.168.1.1/x", "http://10.0.0.1/x"):
+                with self.subTest(url=bad):
+                    with self.assertRaises(ValueError):
+                        _check_url(bad)
+                    with self.assertRaises(ValueError):
+                        fetch_url(bad, out_dir=Path(td))
+            self.assertEqual(list(Path(td).glob("*")), [], "被拒的地址不得留下任何落盘文件")
+
+    def test_every_claim_source_tier_matches_its_source(self):
+        """FIDELITY §4 硬规则 4：claim_ledger.source_tier 必须与 provenance 同源。"""
+        import json as _json
+        cache_dirs = sorted((ROOT / "cache").iterdir(), key=lambda p: p.stat().st_mtime)
+        self.assertTrue(cache_dirs, "cache/ 下应有历史 IR")
+        ledger = None
+        prov = None
+        for d in reversed(cache_dirs):
+            lp = d / "claim_ledger.json"
+            if lp.is_file():
+                ledger = _json.loads(lp.read_text(encoding="utf-8"))
+                break
+        self.assertIsNotNone(ledger, "找不到 claim_ledger.json")
+        runs = sorted((ROOT / "out").iterdir(), key=lambda p: p.stat().st_mtime)
+        for r in reversed(runs):
+            pp = r / "provenance_manifest.json"
+            if pp.is_file():
+                prov = _json.loads(pp.read_text(encoding="utf-8"))
+                break
+        self.assertIsNotNone(prov, "找不到 provenance_manifest.json")
+        tiers = {s["source_id"]: s["tier"] for s in prov.get("sources", [])}
+        mismatched = [c for c in ledger["claims"]
+                      if c.get("source_tier") != tiers.get(c.get("source_id"))]
+        self.assertEqual(mismatched, [],
+                         f"这些断言的来源等级与 provenance 不一致：{mismatched[:3]}")
+
+    def test_claim_ledger_source_tier_matches_source_not_extraction(self):
+        from bookleme.fidelity import build_claim_ledger
+        caps = {"extractor": "llm", "capabilities": [{
+            "capability_id": "CAP-0001", "title": "T", "source_id": "SRC-002",
+            "span": {"segment_id": "seg-001", "char_start": 0, "char_end": 5},
+            "ria": {"R_quote": "q", "I_rephrase": "i", "A1_author_case": "a",
+                    "A2_user_trigger": "t", "A3_steps": ["s"], "B_not_applicable": "b"},
+            "confidence": {"tier": "B", "score": 0.7},
+            "source_tier": "B", "checks": {"quote_verified": True}, "claims": ["CLM-1"],
+            "status": "verified",
+        }]}
+        claim = build_claim_ledger(caps, "sha", "/tmp/slices")["claims"][0]
+        self.assertEqual(claim["source_tier"], "B", "来源等级取自来源，不得取抽取方式等级")
+        self.assertEqual(claim["confidence_tier"], "B", "抽取方式等级另存 confidence_tier")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

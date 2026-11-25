@@ -78,6 +78,8 @@ def collect(run_id: str) -> dict:
             "anchor_kind": f.get("anchor_kind", ""),
             "caption_len": len(f.get("caption", "") or ""),
             "has_image": bool(f.get("image_file")),
+            "unlabeled": bool(f.get("unlabeled")),
+            "pairing_uncertain": bool(f.get("pairing_uncertain")),
             "images": {e: art_figs.get(e, {}).get(fid, "") for e in art_figs},
             "linked_caps": [c["capability_id"] for c in caps_obj.get("capabilities", [])
                             if fid in (c.get("figure_refs") or [])],

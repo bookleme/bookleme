@@ -93,10 +93,14 @@ def extract_pdf_figures(path: Path) -> list[dict]:
                 "page": pno, "kind": cap["kind"], "caption": cap["caption"],
                 "image": imgs[i] if has_img else None,
                 "ext": image_ext(imgs[i]) if has_img else "",
+                # 同页图注数与位图数不一致时，按序号配对只是猜测——如实标注
+                "pairing_uncertain": len(caps) != len(imgs),
+                "unlabeled": False,
             })
         for i in range(len(caps), len(imgs)):
-            entries.append({"page": pno, "kind": "figure", "caption": "",
-                            "image": imgs[i], "ext": image_ext(imgs[i])})
+            entries.append({"page": pno, "kind": "unlabeled_figure", "caption": "",
+                            "image": imgs[i], "ext": image_ext(imgs[i]),
+                            "pairing_uncertain": True, "unlabeled": True})
     return entries
 
 
@@ -115,7 +119,9 @@ def html_figure_entries(public_record: dict, base_dir: Path) -> list[dict]:
         caption = (img.get("caption") or img.get("alt") or "").strip()
         out.append({"page": None, "kind": "figure", "caption": caption,
                     "image": data, "ext": p.suffix.lstrip(".") if p else "",
-                    "anchor_text": (img.get("anchor_text") or "").strip()})
+                    "anchor_text": (img.get("anchor_text") or "").strip(),
+                    "pairing_uncertain": False,
+                    "unlabeled": not caption})
     return out
 
 

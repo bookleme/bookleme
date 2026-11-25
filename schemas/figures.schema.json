@@ -15,10 +15,16 @@
           "figure_id": { "type": "string", "pattern": "^FIG-[0-9]{3}$" },
           "source_id": { "type": "string" },
           "page": { "type": ["integer", "null"] },
-          "kind": { "type": "string", "enum": ["figure", "table"] },
+          "kind": { "type": "string", "enum": ["figure", "table", "unlabeled_figure"] },
           "caption": { "type": "string", "maxLength": 150 },
           "char_start": { "type": ["integer", "null"] },
           "char_end": { "type": ["integer", "null"] },
+          "anchor_kind": { "type": ["string", "null"], "enum": ["caption", "context", null] },
+          "pairing_uncertain": {
+            "type": "boolean",
+            "description": "同页图注数与位图数不一致时，按序配对只是猜测——如实标注"
+          },
+          "unlabeled": { "type": "boolean", "description": "该图没有可用图注（只有位图）" },
           "image_file": { "type": ["string", "null"] }
         }
       }

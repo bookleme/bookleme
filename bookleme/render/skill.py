@@ -286,6 +286,10 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
             else:
                 status = "未锚定"
             page = f"p.{f['page']}" if f.get("page") else "—"
+            if f.get("unlabeled"):
+                status += "（无图注）"
+            if f.get("pairing_uncertain"):
+                status += "（图注与位图按序配对，仅供参考）"
             flines.append(f"| {f['figure_id']} | {f['kind']} | {status} | {rel} | {f['source_id']} / {page} |")
         flines += ["",
                    "图注原文不复制进产物（版权纪律）：逐字图注与精确位置存于共享 IR `figures.json`，",
