@@ -75,18 +75,62 @@ def _first_sentence_quote(content: str, quote_chars: int) -> str:
     绝不折叠内部空白（那会破坏逐字性，正是真实书稿踩过的坑）。
     边界搜索窗口放宽到 quote_chars+8：优先在从句边界（≥8 字处）收口，
     避免「有这样一」式硬切半句；结果仍 ≤ 窗口上限。
+
+    句末标点必须同时认中文与英文：网页正文常是纯英文，若只认「。！？」
+    就会一路切到下一个中文标点（整段没有 → 切到窗口上限），产出
+    「Figure 1 shows R」这种半截引文（实测 microsoft.ai 页面 12 张卡全中）。
     """
     content = content.strip()
     if not content:
         return ""
+    # 句末标点：中英文都认。英文句号后不能直接收口（会切在 "U.S." 里），
+    # 所以要求其后不是字母（简单启发式，够用）。
     m = re.search(r"[。！？]", content)
-    sentence = content[:m.end()] if m else content
+    if m:
+        sentence = content[:m.end()]
+    else:
+        sentence = ""
+        for mm in re.finditer(r"[.!?](?=\s|$)", content):
+            sentence = content[:mm.end()]
+            break
+        if not sentence:
+            sentence = content
+    # 短标签句要跳过：英文技术写作常用「Staleness. Agentic rollouts ...」
+    # 这种「小标题句 + 正文句」结构。只取第一句会得到 'Staleness.'（10 字符，
+    # 信息量不足以支撑能力卡）。规则：首句过短（<12 字符）且后面还有内容时，
+    # 继续往后取一句。
+    #
+    # 逐字性是硬约束（find(quote) 必须命中原文）：拼接必须沿用原文的原始
+    # 空白，不能自己补空格也不能自己删空格 —— 原文是 'Staleness. Agentic'，
+    # 拼成 'Staleness.Agentic' 就不是原文子串了。
+    while len(sentence.strip()) < 12:
+        rest = content[len(sentence):]
+        if not rest.strip():
+            break
+        stripped = rest.lstrip()
+        nxt = ""
+        for mm in re.finditer(r"[。！？]|[.!?](?=\s|$)", stripped):
+            nxt = stripped[:mm.end()]
+            break
+        if not nxt:
+            sentence = content
+            break
+        # 保留 rest 中句子之间的原始空白
+        gap = rest[:len(rest) - len(stripped)]
+        sentence = sentence + gap + nxt
     if len(sentence) <= quote_chars:
         return sentence.rstrip()
     window = sentence[:quote_chars + 8]
-    cuts = [mm.end() for mm in re.finditer(r"[，、；：]", window) if mm.end() >= 8]
+    # 从句边界：中文逗号顿号分号冒号 + 英文逗号分号（后跟空格）
+    cuts = [mm.end() for mm in re.finditer(r"[，、；：]|[,;:](?=\s)", window) if mm.end() >= 8]
+    if not cuts:
+        # 没有从句边界 → 退到最近的词边界（英文）或空格
+        if re.search(r"[A-Za-z0-9]$", window):
+            sp = window.rfind(" ")
+            if sp >= 8:
+                cuts = [sp]
     quote = sentence[:cuts[-1]] if cuts else sentence[:quote_chars]
-    return quote.rstrip().rstrip("，、；：").rstrip()
+    return quote.rstrip().rstrip("，、；：,;:").rstrip()
 
 
 _LLM_BODY_CHARS = 3000  # 每卡送模型的正文上限（控成本；首句锚点在其内）
@@ -115,14 +159,24 @@ def _locate_quote_verbatim(full_text: str, quote: str) -> tuple[str, int]:
     return full_text[m.start():m.end()], m.start()
 
 
+def _genre_fields_block(genre_fields: dict) -> str:
+    """体裁额外必填字段的说明块（写进抽取 prompt）。"""
+    if not genre_fields:
+        return "（本体裁无额外必填字段）"
+    return "\n".join(f"- {name}：{desc}" for name, desc in genre_fields.items())
+
+
 def _llm(text: str, segments: list[dict], config: dict, book_title: str,
-         max_caps: int = 16) -> list[dict]:
+         max_caps: int = 16, genre_fields: dict | None = None) -> list[dict]:
     """LLM 抽取：I/A/B 由模型深化，R_quote 终身逐字校验（失败即丢弃该卡）。
 
     单卡失败不中断：跳过该段继续；全军覆没时调用方回退 heuristic。
+    `genre_fields` 是本体裁声明的额外必填字段（见 plugin.capability_schema）：
+    模型必须逐个填写，书中没有的写「书里没讲」。
     """
     from .. import llm as llm_mod
 
+    genre_fields = genre_fields or {}
     prompt_full = llm_mod.load_prompt("capability_extract_v1")
     system, user_tpl = llm_mod.split_prompt(prompt_full)
     tpl = Template(user_tpl)
@@ -137,7 +191,8 @@ def _llm(text: str, segments: list[dict], config: dict, book_title: str,
         if not content:
             continue
         user = tpl.safe_substitute(title=book_title, heading=heading,
-                                   body=content[:_LLM_BODY_CHARS])
+                                   body=content[:_LLM_BODY_CHARS],
+                                   genre_fields=_genre_fields_block(genre_fields))
         try:
             obj = llm_mod.chat_json(user, system=system)
         except llm_mod.LLMError:
@@ -145,13 +200,19 @@ def _llm(text: str, segments: list[dict], config: dict, book_title: str,
         quote, pos = _locate_quote_verbatim(text, str(obj.get("R_quote", "")))
         if pos < 0:
             # 模型引文不可回溯 → 不信任，用确定性首句锚点兜底
-            quote = _first_sentence_quote(content, min(16, config["max_quote_chars"]))
+            quote = _first_sentence_quote(content, min(28, config["max_quote_chars"]))
         if not quote:
             continue
         steps = obj.get("A3_steps")
         steps = [str(s).strip() for s in steps if str(s).strip()] if isinstance(steps, list) else []
         if not steps:
             steps = ["确认适用条件", "按框架逐项检查", "给出带出处的结论或说明边界"]
+        raw_fields = obj.get("genre_fields")
+        raw_fields = raw_fields if isinstance(raw_fields, dict) else {}
+        filled = {}
+        for name in genre_fields:
+            val = str(raw_fields.get(name) or "").strip()
+            filled[name] = val or "书里没讲"   # 缺失即如实标注，不编造
         blocks.append({
             "title": str(obj.get("title") or heading).strip()[:24],
             "R_quote": quote,
@@ -164,16 +225,23 @@ def _llm(text: str, segments: list[dict], config: dict, book_title: str,
             "A3_steps": steps,
             "B_not_applicable": str(obj.get("B_not_applicable") or "").strip()
             or "不适用：书中未覆盖的问题，应明确回答「书里没讲」。",
+            "genre_fields": filled,
         })
     return blocks
 
 
-def _heuristic(text: str, segments: list[dict], max_caps: int = 16, quote_chars: int = 16) -> list[dict]:
+def _heuristic(text: str, segments: list[dict], max_caps: int = 16, quote_chars: int = 28) -> list[dict]:
     """Low-confidence fallback: one card per heading, quote taken verbatim from source.
 
     引文预算：S7 版权门要求引文总量 ≤ 产物字符的 3%。每卡产物约 400 字符、
     固定部分约 2900 字符，16 卡时预算约 260 字符 → 每卡引文取 16 字以内
     （与合成样例 [CAP] 引文同量级）；完整溯源由 span.char_start 承担。
+
+    为什么从 16 放宽到 28：16 字对英文技术写作信息量严重不足 —— 实测
+    microsoft.ai 页面 12 张卡的引文全是 'Figure 1 shows R'、'Our largest RL r'
+    这种半截话，无法支撑「带出处的规则」这一步。
+    预算按版权门实测反推：产物 12,001 字 × 3% = 360 字，12 卡 → 每卡 ≤30 字。
+    取 28 字留余量（实测 64 字时 ratio 0.0515 超门，28 字时约 0.023，稳过）。
     """
     blocks = []
     for seg in segments:
@@ -207,21 +275,36 @@ def _segment_for(pos: int, segments: list[dict]) -> str:
 
 
 def extract_capabilities(full_text: str, segments: list[dict], config: dict,
-                         book_title: str = "") -> dict:
+                         book_title: str = "",
+                         genre_fields: dict | None = None,
+                         host_blocks: list[dict] | None = None) -> dict:
+    """抽取原子能力卡。
+
+    `host_blocks`：宿主 Agent 承接抽取的结果（见 bookleme/judge/capability.py）。
+    传了就直接用它 —— 这是「零配置拿到真内容」的通道：BookLeme 是 harness，
+    在场调它的那个智能体本身就是大模型，让用户配 API key 让它自己调外部模型
+    是把在场能做的事外包出去。
+    """
+    genre_fields = genre_fields or {}
     blocks = _parse_markup(full_text)
     extractor = "deterministic-markup"
+    if host_blocks:
+        blocks = host_blocks
+        extractor = "host-agent"
     if not blocks:
         from .. import llm as llm_mod
         if llm_mod.available():
-            blocks = _llm(full_text, segments, config, book_title)
+            blocks = _llm(full_text, segments, config, book_title,
+                          genre_fields=genre_fields)
             if blocks:
                 extractor = "llm"
         if not blocks:
             blocks = _heuristic(full_text, segments,
-                                quote_chars=min(16, config["max_quote_chars"]))
+                                quote_chars=min(28, config["max_quote_chars"]))
             extractor = "heuristic"
 
     tier, score = {"deterministic-markup": ("S", 0.9),
+                   "host-agent": ("B", 0.7),
                    "llm": ("B", 0.7),
                    "heuristic": ("C", 0.4)}[extractor]
     caps = []
@@ -248,6 +331,11 @@ def extract_capabilities(full_text: str, segments: list[dict], config: dict,
             "source_id": "SRC-001",
             "span": span,
             "ria": {k: block[k] for k in _SIX},
+            # 体裁额外必填字段（plugin.capability_schema["genre_fields"]）：
+            # LLM 抽取时由模型填写；确定性抽取路径填「书里没讲」——确定性抽取器
+            # 本就拿不到阈值/矩阵这类结构化信息，如实标注而非留空或编造。
+            "genre_fields": {name: (block.get("genre_fields", {}) or {}).get(name, "")
+                             or "书里没讲" for name in genre_fields},
             "claims": [f"CLM-{i:04d}"],
             "checks": {"v1": [], "v2_predictive_q": "", "v2_pass": None,
                        "v3_uniqueness": None, "v3_pass": None},

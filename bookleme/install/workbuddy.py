@@ -16,6 +16,28 @@ from ..hashing import sha256_file
 CLAUDE_SKILLS = Path(os.environ.get("BOOKLEME_CLAUDE_SKILLS", str(Path.home() / ".claude/skills")))
 
 
+def target_for(category: str, display_name: str, slug: str) -> Path:
+    """安装目标路径（先算出来，才能在动手前一次性查完冲突）。"""
+    return SKILLS_ROOT / category / f"{display_name}（{slug}）"
+
+
+def preflight(entries: list[dict]) -> None:
+    """全部目标先查一遍：宁可一个都不装，也不要装了一半才发现冲突。"""
+    conflicts = []
+    for e in entries:
+        target = target_for(e["category"], e["display_name"], e["slug"])
+        if not os.path.lexists(target):
+            continue
+        existing = target / "SKILL.md"
+        incoming = Path(e["skill_dir"]) / "SKILL.md"
+        same = (existing.exists() and incoming.exists()
+                and sha256_file(existing) == sha256_file(incoming))
+        if not same:
+            conflicts.append(str(target))
+    if conflicts:
+        raise FileExistsError("目标已存在且内容不同，拒绝覆盖：" + "、".join(conflicts))
+
+
 def install_skill(skill_dir: Path, *, category: str, display_name: str, slug: str,
                   frontmatter_name: str, distribution: str = "private") -> dict:
     skill_dir = Path(skill_dir)

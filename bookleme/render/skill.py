@@ -72,10 +72,25 @@ def _steps(plugin, ctx: dict) -> str:
         "正文骨架用 `assets/blueprint-template.md`，交付前对照其中的「必备字段核对」。"
         if ctx["engine"] == "behavior_skill" else ""
     )
+    figures = ctx.get("figures") or []
+    fig_note = ""
+    if figures:
+        n_img = sum(1 for f in figures if f.get("image_file"))
+        fig_note = (
+            f"若问题涉及图里的结构/流程/数据，先按 `references/figures-index.md` 取图"
+            f"（{n_img} 张位图在 `assets/figures/`）并**用你的视觉能力读图**，"
+            f"作答注明「依据 FIG-XXX（原文 p.N）」；图里看不清就明说「图中此处无法辨认」。"
+        )
+    coverage_note = (
+        "先读 `references/coverage.md`（原文目录）确认本书覆盖哪些章节——覆盖范围是有据可查的，"
+        "不要凭印象判断「这本书大概会讲」。"
+        if ctx.get("toc") else ""
+    )
     return "\n".join([
         "### Step 1：确认适用条件",
         "",
-        f"检查用户请求是否落在触发场景内，并确认书中确实覆盖该问题。若数据或用户陈述不足，先追问，不用假设填充。",
+        f"检查用户请求是否落在触发场景内，并确认书中确实覆盖该问题。若数据或用户陈述不足，先追问，不用假设填充。"
+        + (f"\n{coverage_note}" if coverage_note else ""),
         "",
         "### Step 2：定位框架",
         "",
@@ -83,7 +98,8 @@ def _steps(plugin, ctx: dict) -> str:
         "",
         "### Step 3：按框架执行",
         "",
-        "按分片中的 1-2-3 步骤执行，并保留作者的精确命名；每条判断都要带上出处。",
+        "按分片中的 1-2-3 步骤执行，并保留作者的精确命名；每条判断都要带上出处。"
+        + (f"\n{fig_note}" if fig_note else ""),
         "",
         "### Step 4：产出具名结果并声明边界",
         "",
@@ -128,6 +144,18 @@ def _skill_md(plugin, ctx: dict) -> str:
         "不适用于书中未覆盖的问题，以及需要专业资质判断的心理、医疗、法律、投资场景。"
     )
     section_lines = "\n\n".join(f"### {s}\n\n（回引用户自述的结论）" for s in contract["sections"])
+    # 方法主线：直接从原文目录取，不做概括——让读者一眼看出这本书讲的是什么路线，
+    # 而不是只看到一句「本技能把某某编译成流程」的模板话术。
+    arc = ""
+    toc_heads = [str(e.get("heading", "")).strip() for e in (ctx.get("toc") or [])
+                 if int(e.get("level", 1)) <= 2 and str(e.get("heading", "")).strip()]
+    # Markdown 的 H1 常常就是书名本身，重复一次没有信息量
+    if toc_heads and toc_heads[0] == str(ctx.get("book_title", "")).strip():
+        toc_heads = toc_heads[1:]
+    if len(toc_heads) >= 2:
+        shown = toc_heads[:8]
+        tail = " → …" if len(toc_heads) > len(shown) else ""
+        arc = "\n\n**方法主线**（取自原文目录）：" + " → ".join(shown) + tail
     meta_bullets = ("- 命中的框架：（名称 + 出处）\n- 带出处的规则：（When X, do Y, because Z）\n"
                     "- 执行步骤：1. … 2. … 3. …\n- 不适用边界：…\n- 出处清单：segment_id / char_range")
     meta_fields = ["命中的框架", "带出处的规则", "执行步骤", "不适用边界", "出处清单"]
@@ -156,7 +184,7 @@ description: {ctx['description']}
 
 ## 核心定位
 
-{intro}
+{intro}{arc}
 
 ---
 
@@ -188,13 +216,25 @@ description: {ctx['description']}
 def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) -> str:
     ria = cap["ria"]
     steps = "\n".join(f"{i}. {s}" for i, s in enumerate(ria["A3_steps"], 1))
-    body = Template(plugin.section_template).safe_substitute(
-        trigger=str(ria["A2_user_trigger"]).rstrip("。；;．. "),
-        title=cap["title"], quote=ria["R_quote"],
-        rephrase=ria["I_rephrase"], author_case=ria["A1_author_case"],
-        steps=steps, not_applicable=ria["B_not_applicable"],
-    )
+    # 体裁额外必填字段（plugin.capability_schema.genre_fields）参与模板替换：
+    # 标准 RIA 字段优先，体裁字段只补空位，避免同名覆盖。
+    subst = {
+        "trigger": str(ria["A2_user_trigger"]).rstrip("。；;．. "),
+        "title": cap["title"], "quote": ria["R_quote"],
+        "rephrase": ria["I_rephrase"], "author_case": ria["A1_author_case"],
+        "steps": steps, "not_applicable": ria["B_not_applicable"],
+    }
+    genre_fields = cap.get("genre_fields") or {}
+    for key, val in genre_fields.items():
+        subst.setdefault(str(key), str(val))
+    body = Template(plugin.section_template).safe_substitute(**subst)
     span = cap["span"]
+    gf_block = ""
+    if genre_fields:
+        gf_lines = ["\n## 体裁必填字段\n"]
+        for key, val in genre_fields.items():
+            gf_lines.append(f"- **{key}**：{val}")
+        gf_block = "\n".join(gf_lines) + "\n"
     fig_block = ""
     refs = cap.get("figure_refs") or []
     if refs and figures:
@@ -213,6 +253,7 @@ def _framework_md(plugin, cap: dict, index: int, figures: dict | None = None) ->
         fig_block = "\n".join(lines) + "\n"
     return (
         f"{body}\n"
+        f"{gf_block}"
         f"{fig_block}"
         f"出处：{cap['source_id']} / {span['segment_id']} / char_range "
         f"[{span['char_start']}, {span['char_end']}) / 可信度 {cap['confidence']['tier']}\n"
@@ -227,10 +268,24 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
     rows = ["## 何时读本文件", "",
             "当用户问题需要定位到具体框架分片时，先读本表；不要一次性加载所有分片。", "",
             "| 用户问题 / 意图 | 读取文件 |", "| --- | --- |"]
+    # 同名卡（模型常给出相似标题）必须可区分，否则这张表等于没路由价值
+    seen: dict[str, int] = {}
     for i, cap in enumerate(caps, 1):
-        rows.append(f"| {cap['title']} / {cap['ria']['A2_user_trigger']} | `references/framework-{i:02d}.md` |")
+        title = str(cap["title"]).strip() or f"能力 {i}"
+        n = seen.get(title, 0)
+        seen[title] = n + 1
+        if n or seen[title] > 1:
+            tag = "、".join(cap.get("figure_refs") or []) or f"#{i}"
+            title = f"{title}（{tag}）"
+        rows.append(f"| {title} / {cap['ria']['A2_user_trigger']} | `references/framework-{i:02d}.md` |")
+    if ctx.get("toc"):
+        rows.append("| 这本书到底覆盖什么（判断该不该答） | `references/coverage.md` |")
     if figs:
         rows.append("| 原书图示 / 图示索引 | `references/figures-index.md` |")
+    if ctx.get("engine") == "knowledge_pack":
+        # 这两个文件此前生成但没人指路，等于死文件——挂进索引
+        rows.append("| 快速判断表（当用户问『先看哪条』） | `references/cheatsheet.md` |")
+        rows.append("| 三级按需加载怎么用 | `references/index-guide.md` |")
     rows += ["| 出处与版权 | `references/provenance.md` |"]
     files["references/topic-index.md"] = "\n".join(rows) + "\n"
 
@@ -251,13 +306,44 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
             else:
                 status = "未锚定"
             page = f"p.{f['page']}" if f.get("page") else "—"
+            if f.get("unlabeled"):
+                status += "（无图注）"
+            if f.get("pairing_uncertain"):
+                status += "（图注与位图按序配对，仅供参考）"
             flines.append(f"| {f['figure_id']} | {f['kind']} | {status} | {rel} | {f['source_id']} / {page} |")
         flines += ["",
-                   "图注原文不复制入产物（版权纪律）：逐字图注与精确位置存于共享 IR `figures.json`，",
+                   "图注原文不复制进产物（版权纪律）：逐字图注与精确位置存于共享 IR `figures.json`，",
                    "需要图注时回读 IR 或原书对应页，不要凭印象转述。",
+                   "",
+                   "## 读图任务（多模态按需执行）",
+                   "",
+                   "本包里的图示要**亲自看图**才能用上信息，不要只凭图注推测：",
+                   "",
+                   "1. 用户的问题可能涉及图里的结构、流程或数据 → 按上表取图"
+                   "（`assets/figures/FIG-XXX.png`），用你的视觉能力读图；",
+                   "2. 读图后作答要注明「依据 FIG-XXX（原文 p.N）」，让结论可回溯；",
+                   "3. 图里看不清或没有对应图时，明说「图中此处无法辨认」/「书里没讲」，不要猜。",
                    "",
                    "版权提示：图示为原书/原文图片，仅供个人学习检索，非自有/公版时禁止随产物公开分发。"]
         files["references/figures-index.md"] = "\n".join(flines) + "\n"
+
+    # 覆盖范围：让智能体在「书里到底有没有」这件事上有据可依，而不是凭感觉外推。
+    # 只由原文目录生成，不做任何推断，所以可以放心当边界依据。
+    toc = ctx.get("toc") or []
+    if toc:
+        entries = [e for e in toc
+                   if str(e.get("heading", "")).strip() != str(ctx.get("book_title", "")).strip()]
+        lines = ["## 何时读本文件", "",
+                 "当用户的问题可能不在本书范围内时，先读本文件确认覆盖范围。", "",
+                 "## 本书覆盖的章节（取自原文目录）", ""]
+        for e in entries[:120]:
+            level = max(1, min(int(e.get("level", 1)), 4))
+            lines.append(f"{'  ' * (level - 1)}- {e.get('heading', '').strip()}")
+        lines += ["", "## 怎么用", "",
+                  "- 问题落在上面这些章节之内 → 按 `references/topic-index.md` 定位分片作答，并给出处。",
+                  "- 落在范围之外 → 直接说「书里没讲」，不要拿通用知识冒充书里的方法；",
+                  "  用户明确要你的通用看法时，也要标注「这不是书里的内容」。"]
+        files["references/coverage.md"] = "\n".join(lines) + "\n"
 
     prov = ctx["provenance_manifest"]
     fig_line = ""
@@ -276,6 +362,17 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
         f"- 生成引擎：BookLeme {prov['engine']['bookleme_version']} / 插件 {prov['engine']['plugin_id']}\n"
     )
 
+    # 自测用例对所有体裁都生成：速查类也要能回答「书里没讲」与边界问题，
+    # 缺了它，产物改完没有任何可回归的判据（`bookleme check` 会为此报薄）。
+    files["evals/smoke.md"] = (
+        "# 冒烟用例\n\n"
+        + "\n".join(
+            f"- [{p['type']}] {p['id']}：{p['prompt']} → {p['expected_behavior']}"
+            for p in plugin.eval_prompts
+        )
+        + "\n"
+    )
+
     if ctx["engine"] == "behavior_skill":
         contract = plugin.output_contract
         fields = contract.get("required_fields") or []
@@ -287,14 +384,6 @@ def render_skill(plugin, ctx: dict) -> dict[str, str]:
         )
         files["scripts/state_io.py"] = _STATE_IO
         files["state/schema.json"] = json.dumps(_STATE_SCHEMA, ensure_ascii=False, indent=2) + "\n"
-        files["evals/smoke.md"] = (
-            "# 冒烟用例\n\n"
-            + "\n".join(
-                f"- [{p['type']}] {p['id']}：{p['prompt']} → {p['expected_behavior']}"
-                for p in plugin.eval_prompts
-            )
-            + "\n"
-        )
         sm = getattr(plugin, "state_machine", None) or {}
         states = " / ".join(sm.get("states") or [])
         state_line = f"\ncurrent_state 取值：{states}。\n" if states else ""

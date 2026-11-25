@@ -6,7 +6,7 @@
   "properties": {
     "schema_version": { "type": "string" },
     "book_sha256": { "type": "string" },
-    "extractor": { "type": "string", "enum": ["deterministic-markup", "heuristic", "llm"] },
+    "extractor": { "type": "string", "enum": ["deterministic-markup", "heuristic", "llm", "host-agent"] },
     "capabilities": {
       "type": "array",
       "items": {
@@ -48,8 +48,17 @@
             }
           },
           "claims": { "type": "array", "items": { "type": "string" } },
+          "genre_fields": {
+            "type": "object",
+            "description": "体裁额外必填字段（plugin.capability_schema.genre_fields），缺失值填「书里没讲」"
+          },
           "checks": { "type": "object" },
           "confidence": { "type": "object" },
+          "source_tier": {
+            "type": "string",
+            "enum": ["S", "A", "B", "C"],
+            "description": "来源等级（与 provenance_manifest.sources[].tier 一致）；抽取方式的可信度在 confidence.tier"
+          },
           "status": { "type": "string", "enum": ["draft", "verified", "rejected"] }
         }
       }

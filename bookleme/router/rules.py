@@ -47,9 +47,32 @@ def route(full_text: str, segments: list[dict], toc: list[dict], cfg: dict,
         genres, source, reason = [top1], "auto", "margin >= threshold"
     else:
         evidence = build_evidence(segments, cfg["ambiguity_sample_size"])
-        engines = list(cfg["fallback"]["engines"])
-        genres = [top1, top2]
-        source, reason = "ambiguity", cfg["fallback"]["reason"]
+        # 歧义兜底：**按文体属性**决定出几个产物，而不是无条件双出。
+        # 为什么：原兜底固定输出 knowledge_pack + behavior_skill，于是任何
+        # margin 偏小的技术文档都会硬套一个「自我对话教练」——它的触发词是
+        # 「人生设计/自我对话/迷茫」，与 RL 基础设施这类技术内容完全无关，
+        # 实测 microsoft.ai 页面就产出了错配的教练技能。
+        #
+        # 判据是「这个体裁该产出哪类技能」，不是「引擎表有几个条目」：
+        # - 行为类体裁（coach_dialogue）：合成评测书这类内容本就要双引擎产物
+        #   （教练技能 + 框架速查），歧义时双出是对的；
+        # - 知识类体裁（knowledge_reference）：只出框架速查，硬套行为技能是错配。
+        # 靠「default_engines 长度」判断会误伤 coach（它是单引擎表但应双出）。
+        behavior_genres = set(cfg.get("fallback", {}).get("behavior_genres") or [])
+        default_for_top1 = list(cfg["default_engines"].get(top1) or [])
+        if top1 in behavior_genres:
+            engines = list(cfg["fallback"]["engines"])      # 双引擎
+        elif len(default_for_top1) > 1:
+            engines = default_for_top1                        # 多引擎体裁：按其表
+        else:
+            engines = default_for_top1 or list(cfg["fallback"]["engines"])
+        # genres 仍保留 top2：它不产引擎，但参与体裁必填字段的选取
+        # （pipeline 用 genres[0] 之外的体裁补 genre_fields）。
+        genres = [top1, top2] if top2 != top1 else [top1]
+        source, reason = "ambiguity", (
+            cfg["fallback"]["reason"] +
+            f"（按 top1={top1} 的文体属性出产物，不无条件双出）"
+        )
 
     if genre_override:
         genres = [genre_override]

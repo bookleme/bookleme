@@ -78,6 +78,8 @@
   "ambiguity_vote_bonus": 0.10,
   "fallback": {
     "engines": ["knowledge_pack", "behavior_skill"],
-    "reason": "ambiguous_dual_output"
+    "reason": "ambiguous_dual_output",
+    "behavior_genres": ["coach_dialogue"],
+    "behavior_genres_note": "歧义时这些体裁仍双出双引擎产物（行为类内容本就要教练技能 + 框架速查两件）；其余体裁按各自 default_engines 出，不硬套行为技能。缺省视为空表。"
   }
 }

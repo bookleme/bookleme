@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BookLeme router.json（体裁路由配置）",
+  "type": "object",
+  "required": ["schema_version", "features", "weights", "prior", "default_engines",
+               "margin_threshold", "fallback"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "note": { "type": "string" },
+    "features": {
+      "type": "object",
+      "description": "每个确定性特征的归一化上限（raw/cap 后 clip 到 1）",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["cap"],
+        "properties": { "cap": { "type": "number", "minimum": 0 } }
+      }
+    },
+    "weights": {
+      "type": "object",
+      "description": "体裁 → 特征权重表；键必须与 prior / default_engines 的体裁一致",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "number" }
+      }
+    },
+    "prior": {
+      "type": "object",
+      "description": "体裁先验分",
+      "additionalProperties": { "type": "number" }
+    },
+    "hard_gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "when", "target", "bonus"],
+        "properties": {
+          "id": { "type": "string" },
+          "when": { "type": "object" },
+          "target": { "type": "string" },
+          "bonus": { "type": "number" }
+        }
+      }
+    },
+    "default_engines": {
+      "type": "object",
+      "description": "体裁 → 默认引擎列表",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["knowledge_pack", "behavior_skill"] }
+      }
+    },
+    "margin_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+    "ambiguity_sample_size": { "type": "integer", "minimum": 1 },
+    "ambiguity_vote_bonus": { "type": "number", "minimum": 0 },
+    "fallback": {
+      "type": "object",
+      "required": ["engines"],
+      "properties": {
+        "engines": { "type": "array", "items": { "type": "string" } },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}

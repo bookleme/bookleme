@@ -1,3 +1,3 @@
-from .workbuddy import install_skill
+from .workbuddy import install_skill, preflight, target_for
 
-__all__ = ["install_skill"]
+__all__ = ["install_skill", "preflight", "target_for"]
