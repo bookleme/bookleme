@@ -173,24 +173,29 @@ def describe() -> dict:
     s = settings()
     ok = available()
     missing = s.get("missing") or []
+    host_hint = ("首选：宿主 Agent 承接——BookLeme 是 harness，在场调它的那个智能体"
+                 "本身就是大模型。编译时导出 judge 工单，宿主判完回填，"
+                 "groundedness / V2 / V3 就变成真值，全程零配置。"
+                 "命令：`bookleme judge`")
     if ok:
         source = s["source"] or "已配置"
-        hint = "编译期 judge / 抽取可用；不配也能编译，只是这些指标会如实记 null。"
+        hint = ("编译期 judge / 抽取可用（走外部模型 API）。"
+                "不配也能编译——judge 改由宿主 Agent 承接即可。")
     elif not s.get("configured_any"):
-        source = "未检测到任何 LLM 配置"
-        hint = ("零配置即可用：设置任意常见厂商的密钥环境变量（如 OPENAI_API_KEY），"
-                "或写 ~/.bookleme/config.json 的 llm 段；"
-                "都没有也不影响编译——读图交给运行时的智能体，指标如实记 null")
+        source = "未检测到任何 LLM 配置（不影响使用）"
+        hint = ("零配置即可用：" + host_hint +
+                " 外部模型通道是可选项，配了任意常见厂商的密钥环境变量"
+                "（如 OPENAI_API_KEY）就会被自动识别。")
     elif missing:
         source = s["source"] or "部分配置"
         hint = (f"已检测到部分配置，还缺：{'、'.join(missing)}。"
-                "补齐即可；或者直接设任一常见厂商的密钥环境变量（如 OPENAI_API_KEY）走自动识别。"
-                "都不影响编译——读图交给运行时的智能体，指标如实记 null。")
+                "但**不影响使用**——" + host_hint +
+                " 想走外部模型通道再补齐即可。")
     else:
-        source = "未检测到任何 LLM 配置"
-        hint = ("零配置即可用：设置任意常见厂商的密钥环境变量（如 OPENAI_API_KEY），"
-                "或写 ~/.bookleme/config.json 的 llm 段；"
-                "都没有也不影响编译——读图交给运行时的智能体，指标如实记 null")
+        source = "未检测到任何 LLM 配置（不影响使用）"
+        hint = ("零配置即可用：" + host_hint +
+                " 外部模型通道是可选项，配了任意常见厂商的密钥环境变量"
+                "（如 OPENAI_API_KEY）就会被自动识别。")
     return {
         "available": ok,
         "source": source,

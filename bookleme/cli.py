@@ -66,7 +66,7 @@ def _build_parser() -> argparse.ArgumentParser:
     fet.add_argument("--no-images", action="store_true", help="不下载页面图片")
 
     ev = sub.add_parser("eval", help="查看某次 run 的指标")
-    ev.add_argument("--run-id", required=True)
+    ev.add_argument("--run-id", default=None, help="run id（默认最近一次）")
     ev.add_argument("--json", action="store_true", help="输出完整 JSON（默认给人话摘要）")
 
     sch = sub.add_parser("schema", help="校验所有 JSON Schema 文件与 state.json")
@@ -80,6 +80,14 @@ def _build_parser() -> argparse.ArgumentParser:
     chk.add_argument("--json", action="store_true", help="输出 JSON（默认给人话版）")
     chk.add_argument("--strict", action="store_true",
                      help="把「可改进」也算失败（用于 CI；默认只有硬问题才返回 1）")
+
+    jdg = sub.add_parser("judge",
+                         help="忠实度判定：导出工单给宿主 Agent，或回填宿主的判定结果")
+    jdg.add_argument("--run-id", default=None, help="run id（默认最近一次）")
+    jdg.add_argument("--apply", default=None,
+                     help="回填宿主 Agent 写的 answers.json（不填则导出工单）")
+    jdg.add_argument("--out", default=None, help="工单输出路径（默认写到 run 目录）")
+    jdg.add_argument("--json", action="store_true", help="输出 JSON（默认给人话版）")
     return parser
 
 
@@ -195,11 +203,19 @@ def _print_eval_summary(run_id: str, data: dict) -> None:
         print(f"  图示：{figs.get('total', 0)} 张（带位图 {figs.get('with_images', 0)}，"
               f"仅图注 {figs.get('caption_only', 0)}，已锚定 {figs.get('anchored', 0)}）")
     if judge.get("enabled"):
+        channel = judge.get("channel") or "external_model"
+        label = ("宿主 Agent 承接（无 API 调用）" if channel == "host_agent"
+                 else f"外部模型（{judge.get('model_fingerprint')}）")
         print(f"  judge：判定 {judge.get('judged', 0)} 张卡，"
               f"支持 {judge.get('grounded', 0)}，未判定 {judge.get('grounded_unknown', 0)}，"
-              f"调用失败 {judge.get('failed_calls', 0)}")
+              f"通道 {label}")
     else:
         print("  judge：未接入（groundedness / V2 / V3 如实为 null，未伪造）")
+        wl = OUT_DIR / run_id / "judge_worklist.json"
+        if wl.is_file():
+            print(f"    → 待判工单已就绪：{wl}")
+            print("    → 宿主 Agent 可读工单逐条判断后回填："
+                  f"python3 -m bookleme judge --run-id {run_id} --apply answers.json")
     nulls = [k for k, v in fid.items()
              if isinstance(v, dict) and v.get("value") is None]
     if nulls:
@@ -255,6 +271,116 @@ def _doctor(run_id: str | None) -> int:
         ],
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _latest_run_id() -> str:
+    """最近一次**真实** run 的 id（按目录 mtime）。
+
+    排除 `unittest-*`：回归测试会在 out/ 下留下同名 run 目录，按名字排序会让
+    它们排到末尾（unittest 以字母 u 开头，排在时间戳 run 之后），导致
+    `bookleme check` 默认跳到测试产物而不是用户刚编的那次。
+    """
+    runs = []
+    if OUT_DIR.exists():
+        for d in OUT_DIR.iterdir():
+            if d.is_dir() and (d / "metrics.json").is_file() \
+                    and not d.name.startswith("unittest"):
+                runs.append((d.stat().st_mtime, d.name))
+    runs.sort(reverse=True)
+    return runs[0][1] if runs else ""
+
+
+def _judge(args) -> int:
+    """忠实度判定：导出工单给宿主 Agent，或回填宿主判定结果。
+
+    核心思想：BookLeme 是 harness，宿主 Agent 本身就是大模型——所以主观判定
+    由宿主承接，用户不需要配任何 API key。
+    """
+    from .judge import build_worklist, load_answers
+    from .judge.apply import apply_to_run
+
+    run_id = args.run_id or _latest_run_id()
+    if not run_id:
+        print("[ERROR] 没有任何 run 可用：先跑一次 `bookleme run`。", file=sys.stderr)
+        return 1
+    run_dir = OUT_DIR / run_id
+    metrics_path = run_dir / "metrics.json"
+    if not metrics_path.is_file():
+        print(f"[ERROR] 没有这次 run 的指标文件：{metrics_path}", file=sys.stderr)
+        return 1
+
+    cfg = load_run_config()
+    metrics = load_json(metrics_path)
+    from .judge.apply import _cache_dir_from_state
+    cache_dir = metrics.get("cache_dir") or _cache_dir_from_state(run_id)
+    if not cache_dir:
+        print(f"[ERROR] 无法定位 cache 目录（metrics.json 无 cache_dir，state.json 也无路径）："
+              f"{metrics_path}", file=sys.stderr)
+        return 1
+    caps_path = Path(cache_dir) / "capabilities_verified.json"
+    if not caps_path.is_file():
+        print(f"[ERROR] 没有能力卡文件：{caps_path}", file=sys.stderr)
+        return 1
+    caps = load_json(caps_path)
+
+    # ---- 回填模式 ----
+    if args.apply:
+        try:
+            result = apply_to_run(run_id, Path(args.apply), config=cfg)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        print(f"run {run_id} · 判定已回填")
+        print(f"  能力卡 {result['capabilities']} 张 · 已判 {result['judged']} 张")
+        print(f"  grounded {result['grounded']} · 未判定 {result['grounded_unknown']}"
+              f" · V2 通过 {result['v2_pass']} · V3 通过 {result['v3_pass']}")
+        print(f"  通道 {result['channel']}（宿主 Agent 承接，无 API 调用）")
+        print(f"  指标   {result['metrics_path']}")
+        print()
+        print("下一步：python3 -m bookleme eval --run-id " + run_id)
+        return 0
+
+    # ---- 导出工单模式 ----
+    full_text_path = Path(cache_dir) / "full_text.txt"
+    if not full_text_path.is_file():
+        alt = run_dir / "full_text.txt"
+        full_text_path = alt if alt.is_file() else None
+    if full_text_path is None:
+        print(f"[ERROR] 没有语料文件，无法提供 judge 上下文（{cache_dir}）", file=sys.stderr)
+        return 1
+    full_text = full_text_path.read_text(encoding="utf-8", errors="replace")
+
+    jcfg = cfg.get("llm_judge") or {}
+    worklist = build_worklist(caps, full_text, cfg,
+                               votes=int(jcfg.get("votes", 3)))
+    out_path = Path(args.out) if args.out else (run_dir / "judge_worklist.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(worklist, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8")
+
+    if args.json:
+        print(json.dumps({"run_id": run_id, "worklist_path": str(out_path),
+                          "item_count": worklist["item_count"]},
+                         ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"run {run_id} · judge 工单已导出")
+    print(f"  待判项 {worklist['item_count']} 条（{len(worklist['personas'])} 个视角 × "
+          f"{worklist['item_count'] // max(1, len(worklist['personas']))} 张卡）")
+    print(f"  工单   {out_path}")
+    print()
+    print("接下来（宿主 Agent 承接，你不需要配任何 API key）：")
+    print(f"  1. 读 {out_path}，逐条判断 groundedness / V3（可选 V2）")
+    print("  2. 结果写成 answers.json：")
+    print('       {"judgments": {"<capability_id>": {"votes": ['
+          '{"persona": "考据员", "grounded": true, "support": "…", '
+          '"v3_pass": true, "v3_reason": "…"}], "v2": {}}}}')
+    print(f"  3. 回填：python3 -m bookleme judge --run-id {run_id} "
+          f"--apply answers.json")
     return 0
 
 
@@ -331,16 +457,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "doctor":
         return _doctor(args.run_id)
+    if args.command == "judge":
+        return _judge(args)
     if args.command == "check":
         from .check import check_run, format_report
         run_id = args.run_id
         if not run_id:
-            runs = sorted((d.stat().st_mtime, d.name) for d in OUT_DIR.iterdir() if d.is_dir()) \
-                if OUT_DIR.exists() else []
-            if not runs:
+            run_id = _latest_run_id()
+            if not run_id:
                 print("[ERROR] 还没有任何 run，先跑一次 `bookleme run`。", file=sys.stderr)
                 return 1
-            run_id = runs[-1][1]
         try:
             report = check_run(run_id)
         except FileNotFoundError as exc:
@@ -377,7 +503,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "validate":
         return _validate_skill_dir(args.skill_dir)
     if args.command == "eval":
-        metrics = OUT_DIR / args.run_id / "metrics.json"
+        run_id = args.run_id or _latest_run_id()
+        if not run_id:
+            print("[ERROR] 还没有任何 run，先跑一次 `bookleme run`。", file=sys.stderr)
+            return 1
+        metrics = OUT_DIR / run_id / "metrics.json"
         if not metrics.exists():
             print(f"[ERROR] 未找到 {metrics}", file=sys.stderr)
             return 1
@@ -385,7 +515,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "json", False):
             print(json.dumps(data, ensure_ascii=False, indent=2))
             return 0
-        _print_eval_summary(args.run_id, data)
+        _print_eval_summary(run_id, data)
         return 0
     if args.command == "schema":
         return _schema_check(args.state)

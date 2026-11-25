@@ -210,16 +210,42 @@ python3 -m bookleme run --input ./我的书稿目录 --title "书名"
 --public --confirm-public PUBLISH                  # 公开分发（裸词确认）
 ```
 
-**关于「要不要配大模型」——默认不用**
+**关于「要不要配大模型」——不用配，宿主 Agent 就是那个大模型**
 
-编译期调模型（更深的卡片抽取、忠实度 judge、读图预填）**是可选增强，不是前提**：
+BookLeme 是个 **harness**：它编排流程，但不自带大模型。真正做判断的智能体就在现场——
+调用 `bookleme run` 的那个 Agent（WorkBuddy / Claude Code / Codex…）本身就是大模型。
+所以主观判定由**宿主 Agent 承接**，用户不需要配任何密钥：
 
-- 没有任何配置 → 照常出产物，`groundedness` / `V2` / `V3` 如实显示 `null` 并注明「未接入，不伪造」；
-- 想用 → 设置任意常见厂商的标准环境变量（如 `OPENAI_API_KEY` / `MOONSHOT_API_KEY` /
-  `DASHSCOPE_API_KEY` / `DEEPSEEK_API_KEY` / `ARK_API_KEY` …）就会被**自动识别**，无需知道
-  BookLeme 的专有变量名；也可写 `~/.bookleme/config.json` 的 `llm` 段；
+```bash
+python3 -m bookleme run --input <书>            # 编译；S5 自动导出 judge 工单
+python3 -m bookleme judge                        # （可选）重新导出工单
+#   → 宿主 Agent 读 out/<run_id>/judge_worklist.json，逐条判断，写 answers.json
+python3 -m bookleme judge --apply answers.json   # 回填 → groundedness / V2 / V3 变真值
+```
+
+分工是清楚的：
+
+- **确定性那半留在 Python**：引文逐字回验、shingle 重叠、覆盖率、版权门 —— measured 指标；
+- **主观那半交给宿主 Agent**：groundedness（断言是否真被原文支持）、V2（预测力）、
+  V3（独特性）本质是语义判断，宿主用自己的推理能力逐条判，比绕一圈调外部 API
+  更直接，也不用用户多配一把密钥。
+
+回填走与在线 judge **完全相同**的归约逻辑（多视角多数票、平票=未决），两种来源的
+指标口径一致、可比。
+
+<details>
+<summary>可选：走外部模型 API（高级用户）</summary>
+
+编译期调模型（更深的卡片抽取、忠实度 judge、读图预填）也可以配外部模型：
+
+- 设置任意常见厂商的标准环境变量（如 `OPENAI_API_KEY` / `MOONSHOT_API_KEY` /
+  `DASHSCOPE_API_KEY` / `DEEPSEEK_API_KEY` / `ARK_API_KEY` …）就会被**自动识别**，
+  无需知道 BookLeme 的专有变量名；也可写 `~/.bookleme/config.json` 的 `llm` 段；
+- 配了走外部模型通道，没配走宿主 Agent 承接 —— **两条路都能拿到真值**；
 - **读图不需要编译期视觉模型**：产物里带「读图任务」区块，由使用该技能的智能体
   （多数模型原生支持多模态）在需要时亲自看图作答——这才是这套东西该有的分工。
+
+</details>
 
 ```bash
 python3 -m bookleme doctor    # 看当前识别到什么

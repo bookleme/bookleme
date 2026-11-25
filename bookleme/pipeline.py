@@ -523,7 +523,12 @@ class Pipeline:
                 self.config,
             )
             # judge（可选）：groundedness / V2 / V3 的真实判定。
-            # 未配置 LLM → 不调用，指标保持 null（绝不用启发式假装有 judge 结果）。
+            # 两条通道：
+            # 1) 配置了外部模型 → 直接调（保持向后兼容）；
+            # 2) 没配置 → **导出工单给宿主 Agent**。BookLeme 是 harness，
+            #    宿主 Agent 本身就是大模型，让用户去配 API key 让它自己调
+            #    外部模型，是把在场能做的事外包出去——多一道配置、多一把密钥。
+            #    确定性那半（逐字回验/覆盖率/版权门）不受影响，照常产出。
             judge_result = None
             v1 = v1_cross_domain(caps_v, segments)
             jcfg = self.config.get("llm_judge") or {}
@@ -534,8 +539,20 @@ class Pipeline:
                     f"（{judge_result['votes']} 票多数，fingerprint="
                     f"{judge_result['model_fingerprint']}）")
             else:
-                log("    judge 未运行（未配置 BOOKLEME_LLM_* 或 llm_judge.enabled=false）"
-                    "——groundedness/V2/V3 保持 null，不伪造")
+                # 导出工单：宿主 Agent 承接，无需用户配置任何东西
+                try:
+                    from .judge import build_worklist
+                    worklist = build_worklist(caps_v, full_text, self.config,
+                                              votes=int(jcfg.get("votes", 3)))
+                    wl_path = out_dir / "judge_worklist.json"
+                    self._write(wl_path, worklist, log)
+                    log(f"    judge 工单已导出：{wl_path}"
+                        f"（{worklist['item_count']} 条待判）")
+                    log("    → 宿主 Agent 承接：读工单逐条判断，写 answers.json 后执行")
+                    log(f"       `bookleme judge --run-id {run_id} --apply answers.json`")
+                    log("    → 在那之前，groundedness/V2/V3 保持 null（不伪造）")
+                except Exception as exc:
+                    log(f"    judge 工单导出失败：{type(exc).__name__}: {exc}")
             ledger = build_claim_ledger(caps_v, book_sha256, str(cache / "slices"),
                                         judge=judge_result, v1=v1)
             fidelity = build_fidelity_report(caps_v, ledger, segments, quote_records,

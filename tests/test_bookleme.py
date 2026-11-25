@@ -1626,5 +1626,82 @@ class TestHtmlContentQuality(unittest.TestCase):
             self.assertNotIn("behavior_skill", result["engines"])
 
 
+class TestHostAgentJudgeChannel(unittest.TestCase):
+    """宿主 Agent 承接 judge：用户不需要配任何 API key。
+
+    背景：BookLeme 是 harness，宿主 Agent 本身就是大模型。让用户配
+    OPENAI_API_KEY 让 BookLeme 自己去调外部模型，是把在场能做的事外包出去。
+    这组测试锁住「导出工单 → 宿主判定 → 回填」这条通道。
+    """
+
+    def _caps(self):
+        return {"capabilities": [{
+            "capability_id": "CAP-0001",
+            "title": "Controlling staleness",
+            "ria": {
+                "R_quote": "Our largest RL runs mix problems",
+                "I_rephrase": "按「Controlling staleness」判断情境。",
+                "A3_steps": ["确认条件", "逐项检查", "给结论"],
+                "B_not_applicable": "书里没讲",
+            },
+            "span": {"char_start": 100, "segment_id": "seg-003"},
+        }]}
+
+    def _full_text(self):
+        return ("x" * 100 + "Our largest RL runs mix problems that finish in minutes "
+                "with long horizon agentic tasks." + "y" * 100)
+
+    def test_worklist_contains_evidence_for_each_persona(self):
+        """工单必须带逐字引文与上下文——宿主判「是否被支持」时要有证据。"""
+        from bookleme.judge import build_worklist
+        wl = build_worklist(self._caps(), self._full_text(), load_run_config())
+        self.assertEqual(wl["item_count"], 3, "3 个 persona 应各出一条待判项")
+        first = wl["items"][0]
+        self.assertEqual(first["quote"], "Our largest RL runs mix problems")
+        self.assertIn("Our largest RL runs mix problems", first["context"])
+        self.assertIn("grounded", first["answer_schema"])
+
+    def test_apply_answers_uses_majority_and_keeps_unknown(self):
+        """回填走多数票；平票必须记为「未决」而不是「不被支持」。"""
+        from bookleme.judge import apply_answers
+        caps = self._caps()
+        # 2 票支持 1 票反对 → 多数支持
+        ans = {"judgments": {"CAP-0001": {"votes": [
+            {"persona": "考据员", "grounded": True, "v3_pass": True},
+            {"persona": "事实核查员", "grounded": True, "v3_pass": True},
+            {"persona": "逆向怀疑者", "grounded": False, "v3_pass": False},
+        ]}}}
+        r = apply_answers(caps, ans, load_run_config())
+        self.assertIs(r["results"]["CAP-0001"]["grounded"], True)
+        self.assertEqual(r["channel"], "host_agent")
+        self.assertEqual(r["model_fingerprint"], "host-agent",
+                         "宿主承接不得伪装成某个外部模型")
+
+        # 平票 → 未决（None），不得记成 False
+        ans2 = {"judgments": {"CAP-0001": {"votes": [
+            {"persona": "考据员", "grounded": True},
+            {"persona": "事实核查员", "grounded": False},
+        ]}}}
+        r2 = apply_answers(caps, ans2, load_run_config())
+        self.assertIsNone(r2["results"]["CAP-0001"]["grounded"],
+                          "平票必须记为未决（None），不能记为 False")
+
+    def test_missing_judgment_leaves_metric_null_not_false(self):
+        """宿主没判的卡 → 该卡判定为 None，不能算作「不被支持」。"""
+        from bookleme.judge import apply_answers
+        r = apply_answers(self._caps(), {"judgments": {}}, load_run_config())
+        self.assertIsNone(r["results"]["CAP-0001"]["grounded"])
+        self.assertEqual(r["summary"]["judged"], 0)
+
+    def test_llm_module_still_optional_not_required(self):
+        """外部模型通道仍是可选项，不得变成编译前提。"""
+        from bookleme import llm
+        # 没配密钥时 available() 为 False，但流水线必须照常跑
+        self.assertIn("available", llm.describe())
+        d = llm.describe()
+        self.assertIn("宿主 Agent 承接", d["hint"],
+                      "doctor 的提示应把宿主承接列为首选路径")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
