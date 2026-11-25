@@ -136,7 +136,9 @@ def extract_figure_cards(figures: list[dict], config: dict, book_title: str = ""
         char_start = quote_pos
         out.append({
             "capability_id": f"FIGCAP-{idx:03d}",
-            "title": str(obj.get("title") or fig["figure_id"])[:40],
+            # 标题带图 ID：模型常给出相似标题（如多张图都叫「整体结构图」），
+            # 不加区分符，topic-index 里的路由会失效。
+            "title": f"{fig['figure_id']} {str(obj.get('title') or '')[:36]}".strip(),
             "genre_tags": [],
             "engine_targets": ["knowledge_pack", "behavior_skill"],
             "source_id": fig.get("source_id", "SRC-001"),

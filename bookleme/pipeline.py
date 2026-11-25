@@ -322,6 +322,8 @@ class Pipeline:
                     "kind": e["kind"], "caption": e["caption"],
                     "char_start": e.get("char_start"), "char_end": e.get("char_end"),
                     "anchor_kind": e.get("anchor_kind"),
+                    "pairing_uncertain": bool(e.get("pairing_uncertain")),
+                    "unlabeled": bool(e.get("unlabeled")),
                     "image_file": image_file,
                 })
             figures_obj = {"schema_version": "2.0", "book_sha256": book_sha256,
@@ -436,6 +438,12 @@ class Pipeline:
                 # 改写 extractor 会破坏 schema 枚举（如 "heuristic+figure-insight"）。
                 caps["figure_cards"] = len(fig_cards)
                 log(f"    读图生成能力卡 {len(fig_cards)} 张（图示 → 要点，视觉模型）")
+            # 每张卡记下**来源等级**（与 provenance 的 sources[].tier 同源），
+            # 免得下游把「抽取方式等级」误当来源等级写进 claim ledger。
+            # 必须在图解读卡并入之后再赋：否则新卡没有 source_tier，下游会退化成 C。
+            tier_by_sid = {s["source_id"]: s.get("tier", "C") for s in sources}
+            for cap in caps["capabilities"]:
+                cap["source_tier"] = tier_by_sid.get(cap.get("source_id", ""), "C")
             self._write(s4_paths[0], caps, log)
             self.state.mark(run_id, "S4", s4_hash, s4_paths,
                             degraded=caps["extractor"] == "heuristic",
