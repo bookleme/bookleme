@@ -1689,6 +1689,61 @@ class TestHostAgentCapabilityChannel(unittest.TestCase):
         self.assertIn("policy staleness", item["body"])
         self.assertEqual(item["segment_id"], "seg-001")
 
+    def test_worklist_never_drops_body_content(self):
+        """**工单不得丢正文**——这是真实事故。
+
+        早期版本把章节正文截到 3000 字符，结果长章节的后半段整个丢掉：
+        microsoft.ai 页「Controlling staleness」节完整 5641 字，截断后丢掉的
+        恰好是「丢弃失败 rollout」「保持作业 inference-bound」「加推理服务器
+        反而加大陈旧度」三段 —— 宿主看不到，提炼出的卡必然残缺。
+        现在：放得下给全文；放不下按段落边界切块，**内容一条不少**。
+        """
+        from bookleme.judge.capability import build_worklist
+        # 造一个超过上限的长章节，尾部放关键内容
+        head = "Opening paragraph about staleness. " * 80
+        tail = ("Dropping failed rollouts. In Figure 4 the fastest rollout waits "
+                "7.6 hours for the slowest one to finish. Keeping jobs inference-bound. "
+                "The completed group spends just 12 seconds in the controller queue.")
+        body = head + "\n\n" + tail
+        seg = self._seg()
+        seg["char_range"] = [0, len(body)]
+        wl = build_worklist(body, [seg], "测试书", body_chars=1000)
+        self.assertGreater(len(wl["items"]), 1, "超限章节应切块")
+        joined = " ".join(i["body"] for i in wl["items"])
+        self.assertIn("7.6 hours", joined)
+        self.assertIn("12 seconds", joined)
+        self.assertIn("Dropping failed rollouts", joined)
+        # 关键：切块后不能有内容丢失（除空白差异）
+        for frag in ("7.6 hours", "12 seconds", "Keeping jobs inference-bound",
+                     "Opening paragraph about staleness"):
+            self.assertIn(frag, joined)
+
+    def test_case_field_can_hold_numbers(self):
+        """书中用例要能装下可核查数字——读者靠这些数字照着算。
+
+        背景：staleness 那张卡有五个控制手段（4 步同步 / 15 秒传输 / 24 分钟 /
+        7.6 小时 / 12 秒），A1 上限定 80 字时塞不下，只能概括成一句话。
+        """
+        from bookleme.judge.capability import validate_card
+        case = ("最大规模运行混用分钟级任务与数小时长程 agentic 任务。"
+                "每 4 个训练步同步一次采样器权重，sampler lag 为 0–3 步；"
+                "权重传输耗时 15 秒；每个 rollout 首次推理请求前等 24 分钟；"
+                "最快的 rollout 等最慢的 7.6 小时；已完成的一组在 controller "
+                "队列只等 12 秒。代价是学习器 GPU 部分空转。")
+        ok, why = validate_card(self._card(A1_author_case=case), self._body(), {})
+        self.assertTrue(ok, why)
+
+    def test_steps_up_to_seven_allowed(self):
+        """并列机制有几个就写几步——上限 7 步够装一节的完整机制清单。"""
+        from bookleme.judge.capability import validate_card
+        steps = [f"第 {i} 个控制手段，含具体数字 {i * 10}%" for i in range(1, 8)]
+        ok, why = validate_card(self._card(A3_steps=steps), self._body(), {})
+        self.assertTrue(ok, why)
+        ok2, why2 = validate_card(
+            self._card(A3_steps=steps + ["第八步"]), self._body(), {})
+        self.assertFalse(ok2)
+        self.assertIn("7 步", why2)
+
     def test_apply_answers_rejects_bad_cards(self):
         """不合契约的卡必须被拒——如实报告，不静默接受。"""
         from bookleme.judge.capability import apply_answers

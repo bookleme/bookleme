@@ -44,9 +44,9 @@ ANSWERS_SCHEMA: dict = {
                 "title": "str — 作者对该方法的命名（≤20 字）",
                 "R_quote": "str — 逐字复制原文的短语（8-24 字）",
                 "I_rephrase": "str — 可执行规则（40-80 字）",
-                "A1_author_case": "str — 书中案例（30-80 字）",
-                "A2_user_trigger": "str — 2-3 个用户话语样本",
-                "A3_steps": ["str", "..."],
+            "A1_author_case": "str — 书中案例（中文 30-200 字 / 英文 15-120 词），带可核查数字",
+            "A2_user_trigger": "str — 2-3 个用户话语样本",
+            "A3_steps": ["str", "..."],
                 "B_not_applicable": "str — 不适用边界（20-60 字）",
                 "genre_fields": {"字段名": "取值"},
             },
@@ -111,12 +111,57 @@ def _display_width(s: str) -> int:
     return w
 
 
+def _split_blocks(content: str, body_chars: int) -> list[str]:
+    """把过长章节按**段落边界**切成多块（不丢内容）。
+
+    为什么按段落切而不是硬截：硬截会砍掉句子中间，把「丢弃失败 rollout」
+    这类小标题整段切没，宿主看不到就提炼不出来。段落边界是语义边界，
+    切开后每块仍是可读的完整段落。
+    """
+    if len(content) <= body_chars:
+        return [content]
+    paras = content.split("\n\n")
+    blocks: list[str] = []
+    cur: list[str] = []
+    cur_len = 0
+    for p in paras:
+        # 单段就超限时：按句子边界再切（不切词）
+        if len(p) > body_chars:
+            if cur:
+                blocks.append("\n\n".join(cur))
+                cur, cur_len = [], 0
+            sentences = re.split(r"(?<=[.!?。！？])\s+", p)
+            for s in sentences:
+                if cur_len + len(s) > body_chars and cur:
+                    blocks.append(" ".join(cur))
+                    cur, cur_len = [], 0
+                cur.append(s)
+                cur_len += len(s) + 1
+            continue
+        if cur_len + len(p) + 2 > body_chars and cur:
+            blocks.append("\n\n".join(cur))
+            cur, cur_len = [], 0
+        cur.append(p)
+        cur_len += len(p) + 2
+    if cur:
+        blocks.append("\n\n".join(cur))
+    return blocks or [content]
+
+
 def build_worklist(text: str, segments: list[dict], book_title: str, *,
-                   genre_fields: dict | None = None, body_chars: int = 3000) -> dict:
+                   genre_fields: dict | None = None, body_chars: int = 20000) -> dict:
     """导出能力卡抽取工单：每个章节一条待填项。
 
-    工单里给的是**章节正文全文**（截到 body_chars）——宿主要提炼出方法论，
-    就必须看到原文，不能只看到标题。
+    工单里给的是**章节正文全文**——宿主要提炼出方法论，就必须看到原文，
+    不能只看到标题。
+
+    **不能截断正文**：早期版本截到 3000 字符，结果长章节的后半段整个丢掉。
+    实测 microsoft.ai 页的「Controlling staleness」节完整 5641 字，截断后丢掉的
+    恰好是「丢弃失败 rollout」「保持作业 inference-bound」「加推理服务器反而加大
+    陈旧度」这三段 —— 也就是这一节最关键的控制手段与反向权衡。宿主看不到，
+    提炼出来的卡必然残缺。
+    现在：整节放得下就放全文；放不下才按段落边界切块，每块一条待填项
+    （**不丢内容**，块数记在 section_blocks 里）。
     """
     genre_fields = genre_fields or {}
     gf_block = "\n".join(f"- {name}：{desc}" for name, desc in genre_fields.items()) \
@@ -129,15 +174,20 @@ def build_worklist(text: str, segments: list[dict], book_title: str, *,
         content = body[_heading_content_start(body, heading):].strip()
         if not content:
             continue
-        items.append({
-            "item_id": seg.get("segment_id", ""),
-            "segment_id": seg.get("segment_id", ""),
-            "heading": heading,
-            "title_hint": heading,
-            "body": content[:body_chars],
-            "body_truncated": len(content) > body_chars,
-            "genre_fields": {name: desc for name, desc in genre_fields.items()},
-        })
+        blocks = _split_blocks(content, body_chars)
+        base_id = seg.get("segment_id", "")
+        for bi, chunk in enumerate(blocks, 1):
+            items.append({
+                "item_id": base_id if len(blocks) == 1 else f"{base_id}#{bi}",
+                "segment_id": base_id,
+                "heading": heading if len(blocks) == 1 else f"{heading}（{bi}/{len(blocks)}）",
+                "title_hint": heading,
+                "body": chunk,
+                "body_truncated": False,
+                "section_blocks": len(blocks),
+                "block_index": bi,
+                "genre_fields": {name: desc for name, desc in genre_fields.items()},
+            })
     return {
         "schema_version": "1.0",
         "kind": "capability_extract_worklist",
@@ -146,17 +196,20 @@ def build_worklist(text: str, segments: list[dict], book_title: str, *,
         "instruction": (
             "你是本次编译的宿主 Agent，本身就是大模型。请为每个章节提炼一张"
             "「原子能力卡」——读者能直接执行的方法单元，而不是「去读原文」的指路牌。"
+            "章节正文是**全文**，请通读后提炼；关键数字、机制、反直觉的权衡都要带上。"
         ),
         "rules": [
             "R_quote 逐字复制原文短语（中文 8-24 字 / 英文 8-12 词），不得改写、"
             "不得合并换行、不得增删字符——它是版权与溯源锚点。",
             f"I_rephrase 把方法重写为可执行规则（中文 40-80 字 / 英文 20-50 词），"
             f"禁止复制 R_quote 原句，禁止与 R_quote 有 {REPEAT_WINDOW} 字以上连续重复。",
-            "A1_author_case 转述书中具体案例/例证（中文 30-80 字 / 英文 15-45 词），"
+            "A1_author_case 转述书中具体案例/例证（中文 30-200 字 / 英文 15-120 词），"
             "保留人物、数字、情境等可核查细节；书中没有案例时写「本章未给出具体案例」。",
             "A2_user_trigger 写 2-3 个真实用户话语样本（每句 ≤20 字），形如"
             "「当用户说『……』时」。",
-            "A3_steps 写 3-5 个执行步骤，至少一步是具体的提问或自检动作。",
+            "A3_steps 写 3-7 个执行步骤，至少一步是具体的提问或自检动作。"
+            "**原文给了几个并列的控制手段/机制，就写几步，别只留一个概括**——"
+            "把关键数字（时长、步数、百分比）写进步骤里，读者才能照着算。",
             "B_not_applicable 写不适用边界（中文 20-60 字 / 英文 10-30 词）："
             "什么情况下不该套用本方法。",
             "只写本章实际讲过的内容。书里没有的绝不编造；宁可少写，不可虚构。",
@@ -207,6 +260,22 @@ def validate_card(card: dict, body: str, genre_fields: dict | None = None) -> tu
     steps = card.get("A3_steps")
     if not isinstance(steps, list) or len(steps) < 2:
         return False, "A3_steps 少于 2 步"
+    if len(steps) > 7:
+        return False, f"A3_steps 有 {len(steps)} 步，最多 7 步"
+    # 书中用例：允许长一点，把可核查数字写进去（读者要靠这些数字照着算）
+    case = str(card.get("A1_author_case") or "").strip()
+    if not case:
+        return False, "A1_author_case 为空"
+    # 长度上限放宽到 200：这一字段的职责是「把可核查细节带出来」，数字越多
+    # 读者越能照着算。早先定 80 字时，staleness 那张卡的五个控制手段（4 步同步 /
+    # 15 秒传输 / 24 分钟等待 / 7.6 小时 / 12 秒）塞不下，只能概括成一句话
+    # —— 读者拿到的就没有可执行性了。200 字能装下一节的完整机制清单。
+    if _is_cjk_heavy(case):
+        if _zh_len(case) > 200:
+            return False, f"A1_author_case 实字数 {_zh_len(case)} 超过 200"
+    else:
+        if len(case.split()) > 120:
+            return False, f"A1_author_case 词数 {len(case.split())} 超过 120"
     if not str(card.get("B_not_applicable") or "").strip():
         return False, "B_not_applicable 为空"
     for name in genre_fields:
