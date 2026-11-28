@@ -5,6 +5,16 @@ from __future__ import annotations
 from .ambiguity import build_evidence
 from .features import FEATURE_NAMES, compute_features, normalize_features
 
+# 体裁领域护栏：仅当硬门 G2 把普通非虚构拉进 professional_analysis 时生效。
+# 关键词命中任一即视为真商业/财经文本；否则撤销 G2 对其的加分并重新排序。
+DOMAIN_REQUIRED_KEYWORDS = {
+    "professional_analysis": (
+        "财报", "财务", "审计", "会计", "税务", "估值", "投资", "股价", "基金",
+        "收入", "利润", "现金流", "成本", "行业分析", "财报分析",
+        "financial", "revenue", "profit", "valuation", "audit", "earnings",
+    )
+}
+
 
 def route(full_text: str, segments: list[dict], toc: list[dict], cfg: dict,
           *, engine_override: str | None = None, genre_override: str | None = None,
@@ -19,6 +29,10 @@ def route(full_text: str, segments: list[dict], toc: list[dict], cfg: dict,
         scores[genre] = round(score, 6)
 
     fired: list[str] = []
+    domain_guard = None
+    lowered = full_text.lower()
+    pa_keywords = DOMAIN_REQUIRED_KEYWORDS["professional_analysis"]
+    has_pa_domain = any(kw in lowered for kw in pa_keywords)
     for gate in cfg["hard_gates"]:
         ok = True
         for name, cond in gate["when"].items():
@@ -27,9 +41,37 @@ def route(full_text: str, segments: list[dict], toc: list[dict], cfg: dict,
                 ok = False
             if "max" in cond and value > cond["max"]:
                 ok = False
-        if ok:
-            scores[gate["target"]] = round(scores[gate["target"]] + gate["bonus"], 6)
-            fired.append(gate["id"])
+        if not ok:
+            continue
+        # G2 会被任何“数字阈值 + 证据词”文本触发，普通历史/文化/自我成长类也会被误判成
+        # 财报分析。没有商业/财经领域关键词时，G2 根本不应对 professional_analysis 生效。
+        if (gate.get("id") == "G2" and gate.get("target") == "professional_analysis"
+                and not has_pa_domain):
+            domain_guard = {
+                "gate": "G2",
+                "target": "professional_analysis",
+                "applied": False,
+                "reason": "no business/finance domain keywords",
+                "keywords_checked": len(pa_keywords),
+            }
+            continue
+        scores[gate["target"]] = round(scores[gate["target"]] + gate["bonus"], 6)
+        fired.append(gate["id"])
+
+    # 普通历史/文化/自我成长类常因“数字多、证据词多”在基础权重上就压过其他体裁；
+    # 没有商业/财经关键词时，professional_analysis 本轮直接退出竞争。
+    if not has_pa_domain and "professional_analysis" in scores:
+        other_min = min(v for k, v in scores.items() if k != "professional_analysis")
+        if scores["professional_analysis"] > other_min:
+            scores["professional_analysis"] = round(other_min - 1.0, 6)
+            domain_guard = domain_guard or {
+                "gate": "G2/domain",
+                "target": "professional_analysis",
+                "applied": False,
+                "reason": "no business/finance domain keywords",
+                "keywords_checked": len(pa_keywords),
+            }
+            domain_guard["demoted_below_all"] = True
 
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     top1, top2 = ranked[0][0], ranked[1][0]
@@ -94,6 +136,7 @@ def route(full_text: str, segments: list[dict], toc: list[dict], cfg: dict,
         "features": {k: round(v, 6) for k, v in features.items()},
         "normalized_features": {k: round(v, 6) for k, v in norm.items()},
         "hard_gates_fired": fired,
+        "domain_guard": domain_guard,
         "scores": scores,
         "top1": top1, "top2": top2,
         "margin": margin,

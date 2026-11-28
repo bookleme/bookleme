@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "2.2.1")
+        self.assertEqual(__version__, "2.2.2")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -1665,6 +1665,32 @@ class TestHtmlContentQuality(unittest.TestCase):
         self.assertEqual(result["top1"], "coach_dialogue")
         self.assertEqual(result["engines"], ["knowledge_pack", "behavior_skill"],
                          f"行为类体裁歧义时应双出：{result['engines']}")
+
+    def test_professional_analysis_requires_domain_keywords(self):
+        """普通非虚构不得仅凭数字/证据词被误判成财报分析流水线。"""
+        from bookleme.router.rules import route
+        cfg = load_router_config()
+        text = ("日本社会的等级与义理。\n" +
+                "根据调查，50% 的受访者认为证据充分；统计显示 30% 以上的人选择另一方案。\n" * 80)
+        from bookleme.segment.headings import segment_text
+        segs = segment_text(text, [], load_run_config())["segments"]
+        result, _ = route(text, segs, [], cfg)
+        self.assertNotEqual(result["top1"], "professional_analysis",
+                            f"无商业/财经关键词却仍判为专业分析：{result['scores']}")
+        self.assertIsNotNone(result["domain_guard"])
+        self.assertFalse(result["domain_guard"]["applied"])
+
+    def test_finance_domain_keeps_professional_analysis_eligible(self):
+        """含商业/财经关键词的文本仍可路由到 professional_analysis。"""
+        from bookleme.router.rules import route
+        cfg = load_router_config()
+        text = ("公司财报分析。\n" +
+                "营业收入增长 50%，毛利率、净利润与自由现金流改善，估值提升，投资回报率为 30%。\n" * 80)
+        from bookleme.segment.headings import segment_text
+        segs = segment_text(text, [], load_run_config())["segments"]
+        result, _ = route(text, segs, [], cfg)
+        self.assertIsNone(result["domain_guard"], "有财经关键词却被领域护栏拦截")
+        self.assertEqual(result["top1"], "professional_analysis")
 
 
 class TestHostAgentCapabilityChannel(unittest.TestCase):
