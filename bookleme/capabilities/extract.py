@@ -301,14 +301,15 @@ def extract_capabilities(full_text: str, segments: list[dict], config: dict,
         blocks = host_blocks
         extractor = "host-agent"
     if not blocks:
+        max_caps = int(config.get("max_capabilities", 16))
         from .. import llm as llm_mod
         if llm_mod.available():
             blocks = _llm(full_text, segments, config, book_title,
-                          genre_fields=genre_fields)
+                          genre_fields=genre_fields, max_caps=max_caps)
             if blocks:
                 extractor = "llm"
         if not blocks:
-            blocks = _heuristic(full_text, segments,
+            blocks = _heuristic(full_text, segments, max_caps=max_caps,
                                 quote_chars=min(28, config["max_quote_chars"]))
             extractor = "heuristic"
 

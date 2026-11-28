@@ -22,6 +22,7 @@
     "max_contiguous_copy_chars": { "type": "integer", "minimum": 0 },
     "segment_window_chars": { "type": "integer", "minimum": 100 },
     "segment_overlap_chars": { "type": "integer", "minimum": 0 },
+    "max_capabilities": { "type": "integer", "minimum": 1, "maximum": 200 },
     "skill_body_max_lines": { "type": "integer", "minimum": 100 },
     "trigger_words_min": { "type": "integer", "minimum": 1 },
     "trigger_words_max": { "type": "integer", "minimum": 1 },

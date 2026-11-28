@@ -37,6 +37,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--author", default="")
     run.add_argument("--isbn", default="")
     run.add_argument("--language", default="zh")
+    run.add_argument("--max-capabilities", type=int, default=None,
+                     help="能力卡上限（默认读配置 max_capabilities，默认 16）；"
+                          "窗口兜底分段较多的书可适当提高")
     run.add_argument("--user-rights", choices=["owned", "licensed", "public_domain", "unknown"], default=None,
                      help="仅在要公开分发时才需要声明；默认按「权利未确认」处理（私有自用、禁止公开）")
     run.add_argument("--public", action="store_true", help="申请公开分发（需同时给 --confirm-public PUBLISH）")
@@ -653,6 +656,7 @@ def main(argv: list[str] | None = None) -> int:
             "user_rights": args.user_rights,
             "genre": args.genre,
             "install": args.install or None,
+            "max_capabilities": args.max_capabilities,
         }
         cfg = load_run_config(overrides)
         router_cfg = load_router_config()

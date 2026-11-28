@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "2.2.2")
+        self.assertEqual(__version__, "2.2.3")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -1665,6 +1665,17 @@ class TestHtmlContentQuality(unittest.TestCase):
         self.assertEqual(result["top1"], "coach_dialogue")
         self.assertEqual(result["engines"], ["knowledge_pack", "behavior_skill"],
                          f"行为类体裁歧义时应双出：{result['engines']}")
+
+    def test_max_capabilities_is_configurable(self):
+        # 能力卡上限可配置：窗口兜底书覆盖偏低时，可通过 max_capabilities 放大。
+        from bookleme.capabilities.extract import extract_capabilities
+        from bookleme.segment.headings import segment_text
+        body = "\n".join(f"第{i}章 练习主题{i}\n" + f"这是第{i}章真正的第一句话，后面还有很多解释内容。\n"
+                         + "补充说明。" * 40 for i in range(1, 8))
+        segs = segment_text(body, [], load_run_config())["segments"]
+        cfg = dict(load_run_config()); cfg["max_capabilities"] = 2
+        caps = extract_capabilities(body, segs, cfg)
+        self.assertLessEqual(len(caps["capabilities"]), 2)
 
     def test_professional_analysis_requires_domain_keywords(self):
         """普通非虚构不得仅凭数字/证据词被误判成财报分析流水线。"""
