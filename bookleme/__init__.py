@@ -4,4 +4,4 @@ Core library has zero third-party dependencies. Optional verification
 dependencies live in <root>/.vendor and are never imported here.
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.5"

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.5 (2026-11-28) — 新增 `bookleme package` 紧凑打包
+
+- 背景：行为类技能产物常有 14-27 张 `references/framework-*.md`，SkillPay 单包上限 20 文件，
+  直接上传会被拦。此前只能手工后处理合并，容易漏改 topic-index 引用。
+- `bookleme package --source <skill_dir> --out <dir>`：复制运行所需文件 → 合并 framework 分片为
+  `references/frameworks.md` → 重写所有 Markdown 中的旧分片引用 → 移除 evals/ 与 coverage 说明。
+  输出目录已存在时报错，不静默覆盖。
+- 回归 +2，共 142 项全过。
+
 ## 2.2.4 (2026-11-28) — 新增 `bookleme batch` 清单批处理
 
 - 背景：多本书批量编译在本机反复出现，手工并行容易踩同一工作树并发竞态

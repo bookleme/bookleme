@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "2.2.4")
+        self.assertEqual(__version__, "2.2.5")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -2235,6 +2235,40 @@ class TestBatchManifest(unittest.TestCase):
             books, errors = _load_batch_manifest(str(p))
             self.assertEqual(books, [])
             self.assertEqual(len(errors), 2)
+
+
+class TestCompactPackage(unittest.TestCase):
+    """紧凑打包：合并 framework 分片、去掉 evals，供平台上传。"""
+
+    def test_compact_merges_frameworks_and_rewrites_refs(self):
+        import tempfile
+        from bookleme.render.compact import compact_skill_dir
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "src"
+            (src / "references").mkdir(parents=True)
+            (src / "evals").mkdir()
+            (src / "SKILL.md").write_text("# 演示\n", encoding="utf-8")
+            (src / "references" / "framework-01.md").write_text("## A\n", encoding="utf-8")
+            (src / "references" / "framework-02.md").write_text("## B\n", encoding="utf-8")
+            (src / "references" / "topic-index.md").write_text(
+                "| x | `references/framework-01.md` |\n", encoding="utf-8")
+            (src / "evals" / "smoke.md").write_text("x", encoding="utf-8")
+            out = Path(d) / "out"
+            result = compact_skill_dir(src, out)
+            self.assertTrue((out / "references" / "frameworks.md").exists())
+            self.assertIn("## A", (out / "references" / "frameworks.md").read_text(encoding="utf-8"))
+            self.assertNotIn("framework-01", (out / "references" / "topic-index.md").read_text(encoding="utf-8"))
+            self.assertFalse((out / "evals").exists())
+            self.assertEqual(result["merged_frameworks"], 2)
+
+    def test_compact_refuses_existing_output(self):
+        import tempfile
+        from bookleme.render.compact import compact_skill_dir
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "src"; src.mkdir(); (src / "SKILL.md").write_text("x", encoding="utf-8")
+            dst = Path(d) / "out"; dst.mkdir()
+            with self.assertRaises(FileExistsError):
+                compact_skill_dir(src, dst)
 
 
 if __name__ == "__main__":

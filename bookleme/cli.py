@@ -65,6 +65,10 @@ def _build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--user-rights", choices=["owned", "licensed", "public_domain", "unknown"],
                        default=None, help="统一使用权利口径（默认按配置，通常 unknown=私有自用）")
 
+    pkg = sub.add_parser("package", help="把技能包压成平台友好的紧凑结构（合并框架分片）")
+    pkg.add_argument("--source", required=True, help="技能产物目录（含 SKILL.md）")
+    pkg.add_argument("--out", required=True, help="输出目录（必须不存在，避免覆盖）")
+
     plugin = sub.add_parser("plugin", help="体裁插件工具")
     psub = plugin.add_subparsers(dest="plugin_cmd", required=True)
     pl = psub.add_parser("list", help="列出可用体裁插件")
@@ -702,6 +706,17 @@ def _batch(args) -> int:
     return 0 if result["failed"] == 0 else 1
 
 
+def _package(args) -> int:
+    from .render.compact import compact_skill_dir
+    try:
+        result = compact_skill_dir(args.source, args.out)
+    except (ValueError, FileExistsError) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
@@ -775,6 +790,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
+    if args.command == "package":
+        return _package(args)
     if args.command == "batch":
         return _batch(args)
     if args.command == "doctor":
