@@ -14,11 +14,19 @@ HEADING_PATTERNS = [
 ]
 
 
+MAX_HEADING_CHARS = 80
+
+
 def _match_heading(line: str):
+    """匹配标题；拒绝把整段正文误判为标题（常见于 HTML/MOBI 转文本换行丢失）。"""
+    stripped = line.strip()
     for pattern, extractor in HEADING_PATTERNS:
-        m = pattern.match(line.strip())
+        m = pattern.match(stripped)
         if m:
-            return extractor(m)
+            level, heading = extractor(m)
+            heading = (heading or "").strip()
+            if heading and len(heading) <= MAX_HEADING_CHARS:
+                return level, heading
     return None
 
 

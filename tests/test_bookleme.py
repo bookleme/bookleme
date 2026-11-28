@@ -128,6 +128,24 @@ class TestRealBookFixes(unittest.TestCase):
         for a, b in zip(segs, segs[1:]):
             self.assertEqual(a["char_range"][1], b["char_range"][0])
 
+    def test_inline_paragraph_is_not_treated_as_heading(self):
+        # HTML/MOBI 转文本常把标题和整段正文挤在同一行；标题启发式必须拒绝长“标题”，
+        # 否则整段会进入产物并触发版权连续复制门。
+        from bookleme.capabilities.extract import extract_capabilities
+        from bookleme.segment.headings import segment_text
+        long_para = ("第一章中已提到，到四五岁的时候，个体已经统一了自己的心灵，"
+                     "并且已形成心灵与肉体间的关系。在此期间，他从周围环境中继承到各种品质，"
+                     "接受到各种观念，并将它们进行调节以适应自己对于优越感的追求。"
+                     "他赋予生命以意义。他所追求的目标、他的行事风格、他的情感特征，"
+                     "这一切都已成定局。这些在日后也可以改变，但他必须首先消除童年期形成的所有错误观点才行。")
+        body = long_para + "\n" + "后续正文内容。" * 120 + "\n"
+        segs = segment_text(body, [], load_run_config())["segments"]
+        self.assertTrue(all(len(s["heading"]) <= 80 for s in segs),
+                        f"出现超长伪标题：{[s['heading'] for s in segs]}")
+        caps = extract_capabilities(body, segs, load_run_config())
+        self.assertTrue(all(len(c["title"]) <= 32 for c in caps["capabilities"]),
+                        f"能力卡标题未收敛：{[c['title'] for c in caps['capabilities']]}")
+
     def test_heuristic_quote_is_verbatim_substring(self):
         # 引文必须是原文逐字子串（不得折叠空白），否则 S5 find() 失败、char_start=-1。
         from bookleme.capabilities.extract import extract_capabilities

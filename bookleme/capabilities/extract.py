@@ -213,21 +213,29 @@ def _llm(text: str, segments: list[dict], config: dict, book_title: str,
         for name in genre_fields:
             val = str(raw_fields.get(name) or "").strip()
             filled[name] = val or "书里没讲"   # 缺失即如实标注，不编造
+        safe_heading = _shorten_title(heading)
         blocks.append({
-            "title": str(obj.get("title") or heading).strip()[:24],
+            "title": _shorten_title(str(obj.get("title") or heading), 24),
             "R_quote": quote,
             "I_rephrase": str(obj.get("I_rephrase") or "").strip()
-            or f"按「{heading}」所界定的条件判断当前情境，再决定是否套用该方法。",
+            or f"按「{safe_heading}」所界定的条件判断当前情境，再决定是否套用该方法。",
             "A1_author_case": str(obj.get("A1_author_case") or "").strip()
             or "该章节给出的原始说明（见出处）。",
             "A2_user_trigger": str(obj.get("A2_user_trigger") or "").strip()
-            or f"当用户的问题涉及「{heading}」时触发。",
+            or f"当用户的问题涉及「{safe_heading}」时触发。",
             "A3_steps": steps,
             "B_not_applicable": str(obj.get("B_not_applicable") or "").strip()
             or "不适用：书中未覆盖的问题，应明确回答「书里没讲」。",
             "genre_fields": filled,
         })
     return blocks
+
+
+def _shorten_title(title: str, limit: int = 32) -> str:
+    title = (title or "").strip()
+    if len(title) <= limit:
+        return title
+    return title[: limit - 1] + "…"
 
 
 def _heuristic(text: str, segments: list[dict], max_caps: int = 16, quote_chars: int = 28) -> list[dict]:
@@ -254,12 +262,13 @@ def _heuristic(text: str, segments: list[dict], max_caps: int = 16, quote_chars:
         first = _first_sentence_quote(content, min(quote_chars, 150))
         if not first:
             continue
+        safe_title = _shorten_title(heading)
         blocks.append({
-            "title": heading,
+            "title": safe_title,
             "R_quote": first,
-            "I_rephrase": f"按「{heading}」所界定的条件判断当前情境，再决定是否套用该方法。",
+            "I_rephrase": f"按「{safe_title}」所界定的条件判断当前情境，再决定是否套用该方法。",
             "A1_author_case": "该章节给出的原始说明（见出处）。",
-            "A2_user_trigger": f"当用户的问题涉及「{heading}」时触发。",
+            "A2_user_trigger": f"当用户的问题涉及「{safe_title}」时触发。",
             "A3_steps": ["确认适用条件", "按框架逐项检查", "给出带出处的结论或说明边界"],
             "B_not_applicable": "不适用：书中未覆盖的问题，应明确回答「书里没讲」。",
         })
