@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.1 (2026-11-28) — MOBI/AZW3 轻量回退 + 伪标题防呆
+
+- **MOBI/AZW3 轻量回退**：`bookleme/extract/mobi.py` 在 Calibre `ebook-convert` 缺失或转换失败时，
+  自动改用可选 `mobi>=0.4.1`（MOBI7→HTML / MOBI8→EPUB）再走原生 HTML/EPUB 适配器；
+  保留原始 `source_id/path`，新增 `extraction_backend`。批量解析不再被 408MB Calibre 安装阻塞。
+- **伪标题防呆**：HTML/MOBI 转文本把「标题+整段正文」挤在同一行时，启发式曾把 227 字段落当标题，
+  导致原话大段进入产物并触发版权连续复制门。现拒绝 >80 字标题候选，能力卡标题统一收敛到 32/24 字。
+- `pyproject.toml` 增加 optional extra `mobi`；核心仍零依赖。回归 37 项全过（含远端 2.2.0 全量测试）。
+
 ## 2.2.0 (2026-11-25) — 结论与证据的绑定
 
 一句话：**引用能找到 ≠ 结论被支持**。这一版把「一条规则」和「它的证据」分开绑，

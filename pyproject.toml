@@ -1,11 +1,15 @@
 [project]
 name = "bookleme"
-version = "2.2.0"
+version = "2.2.1"
 description = "Compile a book into installable agent skills: knowledge packs and behavior skills."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
 dependencies = []
+
+[project.optional-dependencies]
+# MOBI/AZW3 轻量回退；不装则仍可用 Calibre ebook-convert。
+mobi = ["mobi>=0.4.1"]
 
 [project.scripts]
 bookleme = "bookleme.cli:main"

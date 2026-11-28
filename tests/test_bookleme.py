@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "2.2.0")
+        self.assertEqual(__version__, "2.2.1")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -2107,6 +2107,43 @@ class TestEvidenceBindingAndFreshness(unittest.TestCase):
         d = diff_text("a\nb\nc\n", "a\nB\nc\n")
         self.assertTrue(any(x.startswith("-b") for x in d))
         self.assertTrue(any(x.startswith("+B") for x in d))
+class TestMobiFallback(unittest.TestCase):
+    """MOBI 轻量回退：无 Calibre 时用可选 mobi 包，避免被大型安装阻塞。"""
+
+    def test_python_fallback_extracts_html_and_preserves_source(self):
+        import sys
+        import types
+        from unittest import mock
+        from bookleme.extract import mobi as mobi_mod
+
+        with tempfile.TemporaryDirectory() as outer:
+            inner = Path(outer) / "mobi-unpack"
+            inner.mkdir()
+            html_path = inner / "book.html"
+            html_path.write_text("<h1>第1章 测试</h1><p>正文内容</p>", encoding="utf-8")
+            fake = types.ModuleType("mobi")
+            fake.extract = lambda _p: (str(inner), str(html_path))
+            src = Path("/tmp/demo.mobi")
+            with mock.patch.dict(sys.modules, {"mobi": fake}), \
+                 mock.patch.object(mobi_mod.shutil, "which", return_value=None):
+                result = mobi_mod.extract(src)
+            self.assertEqual(result["status"], "ok")
+            self.assertIn("第1章 测试", result["raw_text"])
+            self.assertIn("正文内容", result["raw_text"])
+            self.assertEqual(result["source_id"], "demo.mobi")
+            self.assertEqual(result["path"], str(src))
+            self.assertEqual(result["extraction_backend"], "mobi-python")
+
+    def test_python_fallback_missing_package_is_deferred(self):
+        import sys
+        from unittest import mock
+        from bookleme.extract import mobi as mobi_mod
+
+        with mock.patch.dict(sys.modules, {"mobi": None}), \
+             mock.patch.object(mobi_mod.shutil, "which", return_value=None):
+            result = mobi_mod.extract(Path("/tmp/demo.mobi"))
+        self.assertEqual(result["status"], "deferred")
+        self.assertIn("pip install mobi", result["reason"])
 
 
 if __name__ == "__main__":
