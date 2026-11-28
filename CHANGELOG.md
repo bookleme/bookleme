@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.4 (2026-11-28) — 新增 `bookleme batch` 清单批处理
+
+- 背景：多本书批量编译在本机反复出现，手工并行容易踩同一工作树并发竞态
+  （progress.md/state.json）。上游提供官方串行批处理命令。
+- `bookleme batch --manifest <json> [--out <summary.json>] [--user-rights ...]`：
+  支持 `[{input,title,author,engine,genre,run_id}]` 或 `{"books":[...]}`；同一工作树**串行**执行，
+  逐本记录成功/失败，汇总 JSON 含 run_id 与产物路径。
+- 回归 +2（清单接受列表/对象、缺 input/title 报错），共 140 项全过。
+
 ## 2.2.3 (2026-11-28) — 能力卡上限可配置（`max_capabilities`）
 
 - **问题**：启发式/LLM 抽取的能力卡上限写死 16。窗口兜底分段较多的书（无标题、长段落）

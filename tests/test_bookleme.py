@@ -25,7 +25,7 @@ SYNTHETIC = ROOT / "evals/cases/synthetic/coach_book.md"
 
 class TestBasics(unittest.TestCase):
     def test_version_and_configs(self):
-        self.assertEqual(__version__, "2.2.3")
+        self.assertEqual(__version__, "2.2.4")
         cfg = load_run_config()
         self.assertEqual(cfg["max_quote_chars"], 150)
         self.assertIn("weights", load_router_config())
@@ -2199,6 +2199,42 @@ class TestMobiFallback(unittest.TestCase):
             result = mobi_mod.extract(Path("/tmp/demo.mobi"))
         self.assertEqual(result["status"], "deferred")
         self.assertIn("pip install mobi", result["reason"])
+
+
+class TestBatchManifest(unittest.TestCase):
+    """批量清单：最小校验 + 缺字段报错，避免跑到一半才发现清单写错。"""
+
+    def test_batch_manifest_accepts_list_and_object(self):
+        import json, tempfile
+        from bookleme.cli import _load_batch_manifest
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "m.json"
+            p.write_text(json.dumps([
+                {"input": "/tmp/a.mobi", "title": "A", "engine": "knowledge_pack"},
+                {"input": "/tmp/b.mobi", "title": "B"},
+            ]), encoding="utf-8")
+            books, errors = _load_batch_manifest(str(p))
+            self.assertEqual(errors, [])
+            self.assertEqual(len(books), 2)
+            self.assertEqual(books[0]["id"], "batch-01")
+            self.assertEqual(books[1]["engine"], "auto")
+
+            p.write_text(json.dumps({"books": [{"input": "/tmp/c.mobi", "title": "C"}]}),
+                         encoding="utf-8")
+            books, errors = _load_batch_manifest(str(p))
+            self.assertEqual(len(books), 1)
+            self.assertEqual(books[0]["genre"], None)
+
+    def test_batch_manifest_rejects_missing_fields(self):
+        import json, tempfile
+        from bookleme.cli import _load_batch_manifest
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bad.json"
+            p.write_text(json.dumps([{"title": "没有 input"}, {"input": "/tmp/x.mobi"}]),
+                         encoding="utf-8")
+            books, errors = _load_batch_manifest(str(p))
+            self.assertEqual(books, [])
+            self.assertEqual(len(errors), 2)
 
 
 if __name__ == "__main__":

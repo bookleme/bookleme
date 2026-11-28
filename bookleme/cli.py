@@ -56,6 +56,15 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="真实任务评测集 JSON（资料+项目上下文+任务）："
                           "考回答能否落地、是否区分模拟与线上、能否说明无法下结论")
 
+    batch = sub.add_parser("batch", help="按清单批量编译多本书（同一工作树串行，安全）")
+    batch.add_argument("--manifest", required=True,
+                       help="JSON 清单：[{\"input\": \"...\", \"title\": \"...\", "
+                            "\"author\": \"\", \"engine\": \"auto|knowledge_pack|behavior_skill\", "
+                            "\"genre\": \"...\"}]")
+    batch.add_argument("--out", default=None, help="批次汇总 JSON 输出路径")
+    batch.add_argument("--user-rights", choices=["owned", "licensed", "public_domain", "unknown"],
+                       default=None, help="统一使用权利口径（默认按配置，通常 unknown=私有自用）")
+
     plugin = sub.add_parser("plugin", help="体裁插件工具")
     psub = plugin.add_subparsers(dest="plugin_cmd", required=True)
     pl = psub.add_parser("list", help="列出可用体裁插件")
@@ -621,6 +630,78 @@ def _judge(args) -> int:
     return 0
 
 
+def _load_batch_manifest(path: str) -> tuple[list[dict], list[str]]:
+    """读取批量清单并做最小校验；返回 (books, errors)。"""
+    p = Path(path).expanduser()
+    if not p.is_file():
+        return [], [f"清单文件不存在：{p}"]
+    try:
+        data = load_json(p)
+    except Exception as exc:
+        return [], [f"清单不是合法 JSON：{exc}"]
+    books = data.get("books") if isinstance(data, dict) else data
+    if not isinstance(books, list):
+        return [], ["清单应为数组，或 {\"books\": [...]} 对象"]
+    out: list[dict] = []
+    errors: list[str] = []
+    for i, item in enumerate(books):
+        if not isinstance(item, dict):
+            errors.append(f"第 {i + 1} 项不是对象")
+            continue
+        if not item.get("input"):
+            errors.append(f"第 {i + 1} 项缺少 input")
+            continue
+        if not item.get("title"):
+            errors.append(f"第 {i + 1} 项缺少 title")
+            continue
+        out.append({
+            "id": item.get("id", f"batch-{i + 1:02d}"),
+            "input": item["input"],
+            "title": item["title"],
+            "author": item.get("author", ""),
+            "engine": item.get("engine") or "auto",
+            "genre": item.get("genre"),
+            "run_id": item.get("run_id"),
+        })
+    return out, errors
+
+
+def _batch(args) -> int:
+    books, errors = _load_batch_manifest(args.manifest)
+    if errors:
+        for e in errors:
+            print(f"[ERROR] {e}", file=sys.stderr)
+        return 1
+    cfg_base = load_run_config({"user_rights": args.user_rights})
+    router_cfg = load_router_config()
+    rows = []
+    for b in books:
+        cfg = load_run_config({
+            "user_rights": args.user_rights,
+            "genre": b["genre"] or None,
+        })
+        pipe = Pipeline(cfg, router_cfg)
+        try:
+            summary = pipe.run(
+                [b["input"]], run_id=b["run_id"],
+                engine=None if b["engine"] in (None, "auto") else b["engine"],
+                genre=b["genre"], title=b["title"], author=b["author"],
+                user_rights=args.user_rights,
+            )
+            rows.append({"id": b["id"], "title": b["title"], "ok": True, "summary": summary})
+            print(f"OK   {b['id']} {b['title']}")
+        except Exception as exc:
+            rows.append({"id": b["id"], "title": b["title"], "ok": False, "error": str(exc)})
+            print(f"FAIL {b['id']} {b['title']}: {exc}", file=sys.stderr)
+    result = {"total": len(rows), "ok": sum(1 for r in rows if r["ok"]),
+              "failed": sum(1 for r in rows if not r["ok"]), "rows": rows}
+    out_path = Path(args.out).expanduser() if args.out else (OUT_DIR / "batch-summary.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"批次完成：{result['ok']}/{result['total']}；汇总 {out_path}")
+    return 0 if result["failed"] == 0 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
@@ -694,6 +775,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
+    if args.command == "batch":
+        return _batch(args)
     if args.command == "doctor":
         return _doctor(args.run_id)
     if args.command == "judge":
